@@ -8,3 +8,9 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# Módulo nativo propio: React Native lo invoca por reflexión.
+-keep class com.musicplayer.usb.** { *; }
+
+# react-native-track-player + KotlinAudio (servicio, MediaSession, eventos).
+-keep class com.doublesymmetry.** { *; }
