@@ -15,59 +15,128 @@ export interface QueueTrack extends Track {
 
 export const SEEK_STEP_SECONDS = 10;
 
-let setupPromise: Promise<void> | null = null;
+/**
+ * Reporte de errores del reproductor hacia la UI. Los fallos del player no
+ * deben ser silenciosos: sin esto, un setupPlayer fallido deja la app muda
+ * sin ninguna pista de qué pasó.
+ */
+type PlayerErrorListener = (message: string) => void;
+let errorListener: PlayerErrorListener | null = null;
 
-export function setupPlayerOnce(): Promise<void> {
-  if (!setupPromise) {
-    setupPromise = doSetup().catch(error => {
-      setupPromise = null;
-      throw error;
-    });
-  }
-  return setupPromise;
+export function setPlayerErrorListener(listener: PlayerErrorListener | null) {
+  errorListener = listener;
 }
 
-async function doSetup(): Promise<void> {
-  try {
-    await TrackPlayer.setupPlayer({autoHandleInterruptions: true});
-  } catch (error) {
-    if (!String(error).includes('already been initialized')) {
-      throw error;
+export function reportPlayerError(context: string, error: unknown) {
+  const detail =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'object' && error != null && 'message' in error
+      ? String((error as {message: unknown}).message)
+      : String(error);
+  errorListener?.(`${context}: ${detail}`);
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+let playerReady = false;
+let setupInFlight: Promise<boolean> | null = null;
+
+export function isPlayerReady(): boolean {
+  return playerReady;
+}
+
+/**
+ * Inicializa el reproductor con reintentos (al arrancar en frío Android puede
+ * responder "app in background" durante un instante). Devuelve true si quedó
+ * listo. Importante: los búferes van EXPLÍCITOS porque la capa nativa de
+ * react-native-track-player 4.1.2 lee cada clave ausente como 0 cuando se
+ * pasa cualquier objeto de opciones, y con búfer 0 ExoPlayer no reproduce.
+ * Valores = defaults de ExoPlayer (en segundos).
+ */
+export function setupPlayerOnce(): Promise<boolean> {
+  if (playerReady) {
+    return Promise.resolve(true);
+  }
+  if (!setupInFlight) {
+    setupInFlight = doSetup().finally(() => {
+      setupInFlight = null;
+    });
+  }
+  return setupInFlight;
+}
+
+async function doSetup(): Promise<boolean> {
+  const maxAttempts = 5;
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await TrackPlayer.setupPlayer({
+        minBuffer: 50,
+        maxBuffer: 50,
+        playBuffer: 2.5,
+        backBuffer: 0,
+        autoHandleInterruptions: true,
+      });
+      playerReady = true;
+      break;
+    } catch (error) {
+      const text =
+        error instanceof Error ? error.message : String(error ?? 'desconocido');
+      if (text.includes('already been initialized')) {
+        playerReady = true;
+        break;
+      }
+      if (attempt === maxAttempts) {
+        reportPlayerError('No pude iniciar el reproductor', error);
+        return false;
+      }
+      await delay(1200);
     }
   }
-  await TrackPlayer.updateOptions({
-    android: {
-      appKilledPlaybackBehavior:
-        AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
-    },
-    capabilities: [
-      Capability.Play,
-      Capability.Pause,
-      Capability.SkipToNext,
-      Capability.SkipToPrevious,
-      Capability.SeekTo,
-      Capability.JumpForward,
-      Capability.JumpBackward,
-      Capability.Stop,
-    ],
-    compactCapabilities: [
-      Capability.Play,
-      Capability.Pause,
-      Capability.SkipToNext,
-      Capability.SkipToPrevious,
-    ],
-    forwardJumpInterval: SEEK_STEP_SECONDS,
-    backwardJumpInterval: SEEK_STEP_SECONDS,
-    progressUpdateEventInterval: 1,
-  });
-  // Al terminar el último tema del pendrive vuelve a empezar por el primero.
-  await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+  try {
+    await TrackPlayer.updateOptions({
+      android: {
+        appKilledPlaybackBehavior:
+          AppKilledPlaybackBehavior.StopPlaybackAndRemoveNotification,
+      },
+      capabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+        Capability.SeekTo,
+        Capability.JumpForward,
+        Capability.JumpBackward,
+        Capability.Stop,
+      ],
+      compactCapabilities: [
+        Capability.Play,
+        Capability.Pause,
+        Capability.SkipToNext,
+        Capability.SkipToPrevious,
+      ],
+      forwardJumpInterval: SEEK_STEP_SECONDS,
+      backwardJumpInterval: SEEK_STEP_SECONDS,
+      progressUpdateEventInterval: 1,
+    });
+    // Al terminar el último tema del pendrive vuelve a empezar por el primero.
+    await TrackPlayer.setRepeatMode(RepeatMode.Queue);
+  } catch (error) {
+    reportPlayerError('Configuración del reproductor', error);
+  }
+  return true;
 }
 
 export async function loadQueue(
   groups: FolderGroup[],
   autoplay: boolean,
 ): Promise<void> {
+  const ready = await setupPlayerOnce();
+  if (!ready) {
+    throw new Error('el reproductor no se pudo inicializar');
+  }
   const tracks: QueueTrack[] = flattenGroups(groups).map(t => ({
     id: t.path,
     url: t.url,
@@ -97,7 +166,9 @@ export async function playTrackAt(globalIndex: number): Promise<void> {
   try {
     await TrackPlayer.skip(globalIndex);
     await TrackPlayer.play();
-  } catch {}
+  } catch (error) {
+    reportPlayerError('Reproducir pista', error);
+  }
 }
 
 export async function togglePlayPause(): Promise<void> {
@@ -108,21 +179,27 @@ export async function togglePlayPause(): Promise<void> {
     } else {
       await TrackPlayer.play();
     }
-  } catch {}
+  } catch (error) {
+    reportPlayerError('Play/Pausa', error);
+  }
 }
 
 export async function skipToNext(): Promise<void> {
   try {
     await TrackPlayer.skipToNext();
     await TrackPlayer.play();
-  } catch {}
+  } catch (error) {
+    reportPlayerError('Siguiente', error);
+  }
 }
 
 export async function skipToPrevious(): Promise<void> {
   try {
     await TrackPlayer.skipToPrevious();
     await TrackPlayer.play();
-  } catch {}
+  } catch (error) {
+    reportPlayerError('Anterior', error);
+  }
 }
 
 export async function seekBy(offsetSeconds: number): Promise<void> {
@@ -132,7 +209,9 @@ export async function seekBy(offsetSeconds: number): Promise<void> {
     await TrackPlayer.seekTo(
       progress.duration > 0 ? Math.min(target, progress.duration) : target,
     );
-  } catch {}
+  } catch (error) {
+    reportPlayerError('Adelantar/atrasar', error);
+  }
 }
 
 export function isPlayingState(state: State | undefined): boolean {

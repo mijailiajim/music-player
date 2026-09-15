@@ -4,8 +4,10 @@ import {
   DeviceEventEmitter,
   PermissionsAndroid,
   Platform,
+  Pressable,
   StatusBar,
   StyleSheet,
+  Text,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -28,14 +30,16 @@ import {
   loadQueue,
   playTrackAt,
   QueueTrack,
+  reportPlayerError,
   seekBy,
   SEEK_STEP_SECONDS,
+  setPlayerErrorListener,
   setupPlayerOnce,
   skipToNext,
   skipToPrevious,
   togglePlayPause,
 } from './src/player';
-import {colors} from './src/theme';
+import {colors, fonts} from './src/theme';
 
 type UsbStatus = 'esperando-usb' | 'escaneando' | 'reproduciendo' | 'sin-musica';
 
@@ -55,6 +59,7 @@ export default function App() {
   const [volumeDesc, setVolumeDesc] = useState('');
   const [selection, setSelection] = useState<Selection>({folder: 0, track: 0});
   const [activeTrack, setActiveTrack] = useState<QueueTrack | undefined>();
+  const [playerError, setPlayerError] = useState<string | null>(null);
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
@@ -237,9 +242,15 @@ export default function App() {
         selectionRef.current = {folder: 0, track: 0};
         setSelection({folder: 0, track: 0});
         setStatus('reproduciendo');
-        await loadQueue(found, true);
+        try {
+          await loadQueue(found, true);
+          setPlayerError(null);
+        } catch (error) {
+          reportPlayerError('No pude cargar la música en el reproductor', error);
+        }
       }
-    } catch {
+    } catch (error) {
+      reportPlayerError('Lectura del pendrive', error);
     } finally {
       busyRef.current = false;
     }
@@ -275,29 +286,57 @@ export default function App() {
     // En Android 11+ se abre Ajustes y el permiso se re-verifica al volver.
   }, [refreshVolumes]);
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], event => {
-    if (event.type !== Event.PlaybackActiveTrackChanged) {
+  const retryPlayback = useCallback(async () => {
+    setPlayerError(null);
+    const gs = groupsRef.current;
+    if (gs.length === 0) {
+      refreshVolumes();
       return;
     }
-    const track = event.track as QueueTrack | undefined;
-    activeTrackRef.current = track;
-    setActiveTrack(track);
-    if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
-      const next = {
-        folder: track.folderIndex ?? 0,
-        track: track.indexInFolder ?? 0,
-      };
-      selectionRef.current = next;
-      setSelection(next);
+    try {
+      await loadQueue(gs, true);
+    } catch (error) {
+      reportPlayerError('El reintento también falló', error);
     }
-  });
+  }, [refreshVolumes]);
+
+  useTrackPlayerEvents(
+    [Event.PlaybackActiveTrackChanged, Event.PlaybackError],
+    event => {
+      if (event.type === Event.PlaybackError) {
+        setPlayerError(
+          `Error de reproducción (${event.code ?? 'sin código'}): ${
+            event.message ?? 'desconocido'
+          }`,
+        );
+        return;
+      }
+      if (event.type !== Event.PlaybackActiveTrackChanged) {
+        return;
+      }
+      const track = event.track as QueueTrack | undefined;
+      activeTrackRef.current = track;
+      setActiveTrack(track);
+      if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
+        const next = {
+          folder: track.folderIndex ?? 0,
+          track: track.indexInFolder ?? 0,
+        };
+        selectionRef.current = next;
+        setSelection(next);
+      }
+    },
+  );
 
   useEffect(() => {
     let cancelled = false;
+    setPlayerErrorListener(message => setPlayerError(message));
     (async () => {
       try {
         await setupPlayerOnce();
-      } catch {}
+      } catch (error) {
+        reportPlayerError('Inicio del reproductor', error);
+      }
       if (Platform.OS === 'android' && Number(Platform.Version) >= 33) {
         try {
           await PermissionsAndroid.request(
@@ -325,6 +364,7 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      setPlayerErrorListener(null);
       usbSub.remove();
       keySub.remove();
       appSub.remove();
@@ -370,6 +410,31 @@ export default function App() {
             onVolumeDown={UsbAudio.volumeDown}
             onVolumeUp={UsbAudio.volumeUp}
           />
+        )}
+        {playerError != null && (
+          <View style={styles.errorBanner}>
+            <Text style={styles.errorText} numberOfLines={5}>
+              ⚠️ {playerError}
+            </Text>
+            <View style={styles.errorActions}>
+              <Pressable
+                onPress={retryPlayback}
+                style={({pressed}) => [
+                  styles.errorButton,
+                  pressed && styles.errorButtonPressed,
+                ]}>
+                <Text style={styles.errorButtonText}>REINTENTAR</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setPlayerError(null)}
+                style={({pressed}) => [
+                  styles.errorButton,
+                  pressed && styles.errorButtonPressed,
+                ]}>
+                <Text style={styles.errorButtonText}>CERRAR</Text>
+              </Pressable>
+            </View>
+          </View>
         )}
       </SafeAreaView>
     </SafeAreaProvider>
@@ -448,23 +513,37 @@ function PlayerScreen({
     />
   );
 
+  const trackCount = groups.reduce((sum, g) => sum + g.tracks.length, 0);
+  const diagnostics = (
+    <Text style={styles.diagText} numberOfLines={1}>
+      estado: {String(playback.state ?? 'sin iniciar')} · {trackCount} pistas ·
+      carpeta {folderIndex + 1}/{groups.length}
+    </Text>
+  );
+
   if (landscape) {
     return (
-      <View style={styles.rowLayout}>
-        <View style={styles.leftPane}>
-          {nowPlaying}
-          <View style={styles.spacer} />
-          {controlButtons}
+      <View style={styles.playerRoot}>
+        <View style={styles.rowLayout}>
+          <View style={styles.leftPane}>
+            {nowPlaying}
+            <View style={styles.spacer} />
+            {controlButtons}
+          </View>
+          <View style={styles.rightPane}>{list}</View>
         </View>
-        <View style={styles.rightPane}>{list}</View>
+        {diagnostics}
       </View>
     );
   }
   return (
-    <View style={styles.colLayout}>
-      {nowPlaying}
-      {controlButtons}
-      <View style={styles.listPane}>{list}</View>
+    <View style={styles.playerRoot}>
+      <View style={styles.colLayout}>
+        {nowPlaying}
+        {controlButtons}
+        <View style={styles.listPane}>{list}</View>
+      </View>
+      {diagnostics}
     </View>
   );
 }
@@ -493,5 +572,55 @@ const styles = StyleSheet.create({
   },
   spacer: {
     flex: 1,
+  },
+  playerRoot: {
+    flex: 1,
+  },
+  diagText: {
+    color: colors.dim,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingVertical: 3,
+    backgroundColor: colors.bg,
+  },
+  errorBanner: {
+    position: 'absolute',
+    left: 12,
+    right: 12,
+    bottom: 30,
+    backgroundColor: '#4A1010',
+    borderColor: '#FF6B6B',
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 14,
+    zIndex: 10,
+    elevation: 8,
+  },
+  errorText: {
+    color: '#FFD9D9',
+    fontSize: fonts.small + 2,
+    lineHeight: (fonts.small + 2) * 1.35,
+    fontWeight: '600',
+  },
+  errorActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 10,
+  },
+  errorButton: {
+    borderColor: '#FF6B6B',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginLeft: 10,
+  },
+  errorButtonPressed: {
+    opacity: 0.6,
+  },
+  errorButtonText: {
+    color: '#FFB4B4',
+    fontSize: fonts.small,
+    fontWeight: '800',
   },
 });
