@@ -85,6 +85,16 @@ android {
         versionCode 1
         versionName "1.0"
     }
+    // APKs por arquitectura (más livianos para instalar por transferencia
+    // directa) además del universal.
+    splits {
+        abi {
+            enable true
+            reset()
+            include "arm64-v8a", "armeabi-v7a"
+            universalApk true
+        }
+    }
     signingConfigs {
         debug {
             storeFile file('debug.keystore')
