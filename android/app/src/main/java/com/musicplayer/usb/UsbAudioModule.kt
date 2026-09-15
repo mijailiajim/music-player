@@ -195,23 +195,19 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
         }
         promise.resolve(false)
       } else {
-        val activity: Activity? = currentActivity
+        val activity: Activity? = ctx.currentActivity
         if (activity is PermissionAwareActivity) {
           activity.requestPermissions(
               arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE),
               REQUEST_STORAGE,
-              object : PermissionListener {
-                override fun onRequestPermissionsResult(
-                    requestCode: Int,
-                    permissions: Array<out String>?,
-                    grantResults: IntArray?
-                ): Boolean {
-                  if (requestCode != REQUEST_STORAGE) return false
+              PermissionListener { requestCode, _, grantResults ->
+                if (requestCode != REQUEST_STORAGE) {
+                  false
+                } else {
                   promise.resolve(
-                      grantResults != null &&
-                          grantResults.isNotEmpty() &&
+                      grantResults.isNotEmpty() &&
                           grantResults[0] == PackageManager.PERMISSION_GRANTED)
-                  return true
+                  true
                 }
               })
         } else {
