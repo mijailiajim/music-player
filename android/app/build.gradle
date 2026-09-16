@@ -82,8 +82,8 @@ android {
         applicationId "com.musicplayer"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode 2
+        versionName "1.1"
     }
     // APKs por arquitectura (más livianos para instalar por transferencia
     // directa) además del universal.

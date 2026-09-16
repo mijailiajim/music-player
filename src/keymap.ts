@@ -7,6 +7,7 @@ export const KeyCodes = {
   DPAD_CENTER: 23,
   ENTER: 66,
   HEADSETHOOK: 79,
+  MENU: 82,
   MEDIA_PLAY_PAUSE: 85,
   MEDIA_STOP: 86,
   MEDIA_NEXT: 87,

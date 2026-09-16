@@ -32,7 +32,7 @@ Formatos soportados (los que decodifica Android/ExoPlayer): `mp3, m4a, m4b, aac,
 
 ## Control remoto: modelos comprables en Brasil
 
-⚠️ **Importante**: el puerto USB-C del celular queda ocupado por el pendrive, así que el control **tiene que ser Bluetooth**. Los modelos que solo traen dongle USB de 2.4 GHz (MX3/MX3 Pro, Rii i8 vendido en Brasil) **no sirven** salvo que uses un hub OTG con dos puertos.
+⚠️ **Importante**: el puerto USB-C del celular queda ocupado por el pendrive, así que lo ideal es un control **Bluetooth**. Los modelos que solo traen dongle USB de 2.4 GHz (G10s 2.4G, MX3/MX3 Pro, Rii i8 vendido en Brasil) requieren un **hub OTG con dos puertos** para enchufar pendrive y dongle a la vez — verificado: funcionan bien así.
 
 Investigación con listados reales en tiendas brasileñas (verificados en septiembre de 2026; precios orientativos):
 
@@ -49,16 +49,21 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 
 ## Mapa de teclas del control remoto
 
-| Tecla del control | Acción en la app |
-|---|---|
-| ▲ / ▼ (D-pad) | Mover la selección por la lista (pasa de carpeta al llegar al borde) |
-| ◀ / ▶ (D-pad) | Ver carpeta anterior / siguiente (sin cortar la música) |
-| OK / Enter | Reproducir el tema seleccionado |
-| Play/Pausa | Alternar reproducción |
-| ⏮ / ⏭ | Tema anterior / siguiente |
-| ⏪ / ⏩ | Atrasar / adelantar 10 segundos |
-| Canal +/− o Re Pág/Av Pág | Saltar a la carpeta siguiente / anterior (reproduce ya) |
-| Volumen +/− | Volumen del sistema (lo maneja Android directamente) |
+La app distingue **pulsación corta** de **mantenida** (~medio segundo), pensado para air mouse con pocos botones (G10s y similares): con flechas + OK + MENÚ tenés navegación, play/pausa, cambio de pista y adelantar/atrasar.
+
+| Tecla | Pulsación corta | Mantenida |
+|---|---|---|
+| ▲ / ▼ (D-pad) | Mover la selección (pasa de carpeta en el borde) | Desplazamiento rápido |
+| ◀ / ▶ (D-pad) | Ver carpeta anterior / siguiente (sin cortar la música) | ⏪ Atrasar / ⏩ adelantar 10 s (continuo) |
+| OK / Enter | Reproducir el tema seleccionado | Play / Pausa |
+| MENÚ (☰) | Pista siguiente | Pista anterior |
+| Play/Pausa, ⏮ ⏭, ⏪ ⏩ (si el control los tiene) | Acción directa | — |
+| Canal +/− o Re Pág/Av Pág | Carpeta siguiente / anterior (reproduce ya) | — |
+| Volumen +/− | Volumen del sistema (lo maneja Android) | — |
+
+La selección resaltada **nunca se mueve sola** mientras la estés usando: solo acompaña a la reproducción cuando ya estaba sobre el tema que sonaba. OK reproduce siempre lo que se ve resaltado.
+
+**Air mouse con modo puntero**: para manejar la app usá el modo D-pad (flechas). En modo mouse, el click funciona como un toque en pantalla (tocar una canción la reproduce), pero las flechas dejan de mover la selección.
 
 Los botones en pantalla replican todo: `⏮ «10s ▶/⏸ 10s» ⏭`, `◀ Carpeta / Carpeta ▶` y `Vol − / Vol +`.
 

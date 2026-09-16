@@ -246,6 +246,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_MENU,
             KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_NUMPAD_ENTER,
             KeyEvent.KEYCODE_BUTTON_SELECT,
@@ -265,11 +266,17 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_PAGE_DOWN)
 
     /**
-     * Reenvía a JS las teclas de interés de un control remoto. Devuelve true
-     * si la tecla fue consumida. Volumen y Back no se tocan para conservar el
+     * Reenvía a JS las teclas de interés de un control remoto (pulsar y
+     * soltar, para distinguir pulsación corta de mantenida). Devuelve true si
+     * la tecla fue consumida. Volumen y Back no se tocan para conservar el
      * comportamiento del sistema.
      */
-    fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
+    fun handleRemoteKey(
+        activity: Activity,
+        keyCode: Int,
+        event: KeyEvent?,
+        isDown: Boolean
+    ): Boolean {
       if (keyCode !in REMOTE_KEYS) return false
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
@@ -277,6 +284,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
       val params = Arguments.createMap()
       params.putInt("keyCode", keyCode)
       params.putInt("repeatCount", event?.repeatCount ?: 0)
+      params.putString("action", if (isDown) "down" else "up")
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)

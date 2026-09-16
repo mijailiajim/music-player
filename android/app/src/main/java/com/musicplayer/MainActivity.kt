@@ -24,13 +24,21 @@ class MainActivity : ReactActivity() {
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   }
 
-  // Teclas de controles remotos Bluetooth (D-pad, OK, multimedia). Las teclas
-  // de volumen NO se interceptan: las maneja el sistema directamente.
+  // Teclas de controles remotos (D-pad, OK, Menú, multimedia), con pulsar y
+  // soltar para distinguir pulsación corta de mantenida. Las teclas de
+  // volumen NO se interceptan: las maneja el sistema directamente.
   override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-    if (UsbAudioModule.handleRemoteKey(this, keyCode, event)) {
+    if (UsbAudioModule.handleRemoteKey(this, keyCode, event, true)) {
       return true
     }
     return super.onKeyDown(keyCode, event)
+  }
+
+  override fun onKeyUp(keyCode: Int, event: KeyEvent?): Boolean {
+    if (UsbAudioModule.handleRemoteKey(this, keyCode, event, false)) {
+      return true
+    }
+    return super.onKeyUp(keyCode, event)
   }
 
   /**

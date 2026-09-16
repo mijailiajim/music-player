@@ -1,4 +1,4 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AppState,
   DeviceEventEmitter,
@@ -21,8 +21,8 @@ import Controls from './src/components/Controls';
 import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
-import {KeyCodes, RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanVolume, totalTracks} from './src/library';
+import {createRemoteKeyHandler} from './src/remote';
 import {pickUsbVolume, UsbAudio} from './src/native/UsbAudio';
 import {
   clearQueue,
@@ -48,8 +48,6 @@ interface Selection {
   track: number;
 }
 
-/** La selección vuelve a seguir al tema sonando tras esta pausa sin navegar. */
-const NAV_IDLE_MS = 15000;
 const POLL_INTERVAL_MS = 4000;
 
 export default function App() {
@@ -68,11 +66,9 @@ export default function App() {
   const hasPermissionRef = useRef(false);
   const rootRef = useRef<string | null>(null);
   const busyRef = useRef(false);
-  const lastNavRef = useRef(0);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateSelection = useCallback((next: Selection) => {
-    lastNavRef.current = Date.now();
     selectionRef.current = next;
     setSelection(next);
   }, []);
@@ -121,16 +117,20 @@ export default function App() {
     playTrackAt(group.startIndex + track);
   }, []);
 
-  const playFolderOffset = useCallback((delta: number) => {
-    const gs = groupsRef.current;
-    if (gs.length === 0) {
-      return;
-    }
-    const current =
-      activeTrackRef.current?.folderIndex ?? selectionRef.current.folder;
-    const target = (current + delta + gs.length) % gs.length;
-    playTrackAt(gs[target].startIndex);
-  }, []);
+  const playFolderOffset = useCallback(
+    (delta: number) => {
+      const gs = groupsRef.current;
+      if (gs.length === 0) {
+        return;
+      }
+      const current =
+        activeTrackRef.current?.folderIndex ?? selectionRef.current.folder;
+      const target = (current + delta + gs.length) % gs.length;
+      updateSelection({folder: target, track: 0});
+      playTrackAt(gs[target].startIndex);
+    },
+    [updateSelection],
+  );
 
   const selectTrackInFolder = useCallback(
     (folder: number, indexInFolder: number) => {
@@ -145,61 +145,35 @@ export default function App() {
     [updateSelection],
   );
 
-  const onRemoteKey = useCallback(
-    (event: RemoteKeyEvent) => {
-      switch (event.keyCode) {
-        case KeyCodes.DPAD_UP:
-          moveSelection(-1);
-          break;
-        case KeyCodes.DPAD_DOWN:
-          moveSelection(1);
-          break;
-        case KeyCodes.DPAD_LEFT:
-          moveSelectionFolder(-1);
-          break;
-        case KeyCodes.DPAD_RIGHT:
-          moveSelectionFolder(1);
-          break;
-        case KeyCodes.DPAD_CENTER:
-        case KeyCodes.ENTER:
-        case KeyCodes.NUMPAD_ENTER:
-        case KeyCodes.BUTTON_SELECT:
-        case KeyCodes.BUTTON_A:
-          playSelection();
-          break;
-        case KeyCodes.MEDIA_PLAY_PAUSE:
-        case KeyCodes.HEADSETHOOK:
-          togglePlayPause();
-          break;
-        case KeyCodes.MEDIA_PLAY:
-          TrackPlayer.play();
-          break;
-        case KeyCodes.MEDIA_PAUSE:
-        case KeyCodes.MEDIA_STOP:
-          TrackPlayer.pause();
-          break;
-        case KeyCodes.MEDIA_NEXT:
-          skipToNext();
-          break;
-        case KeyCodes.MEDIA_PREVIOUS:
-          skipToPrevious();
-          break;
-        case KeyCodes.MEDIA_FAST_FORWARD:
-          seekBy(SEEK_STEP_SECONDS);
-          break;
-        case KeyCodes.MEDIA_REWIND:
-          seekBy(-SEEK_STEP_SECONDS);
-          break;
-        case KeyCodes.CHANNEL_UP:
-        case KeyCodes.PAGE_DOWN:
-          playFolderOffset(1);
-          break;
-        case KeyCodes.CHANNEL_DOWN:
-        case KeyCodes.PAGE_UP:
-          playFolderOffset(-1);
-          break;
-      }
-    },
+  const onRemoteKey = useMemo(
+    () =>
+      createRemoteKeyHandler(
+        {
+          moveSelection,
+          moveFolder: moveSelectionFolder,
+          playSelection,
+          togglePlayPause: () => {
+            togglePlayPause();
+          },
+          nextTrack: () => {
+            skipToNext();
+          },
+          previousTrack: () => {
+            skipToPrevious();
+          },
+          seekBy: seconds => {
+            seekBy(seconds);
+          },
+          playFolderOffset,
+          play: () => {
+            TrackPlayer.play();
+          },
+          pause: () => {
+            TrackPlayer.pause();
+          },
+        },
+        SEEK_STEP_SECONDS,
+      ),
     [moveSelection, moveSelectionFolder, playSelection, playFolderOffset],
   );
 
@@ -315,15 +289,29 @@ export default function App() {
         return;
       }
       const track = event.track as QueueTrack | undefined;
+      const previous = event.lastTrack as QueueTrack | undefined;
       activeTrackRef.current = track;
       setActiveTrack(track);
-      if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
-        const next = {
-          folder: track.folderIndex ?? 0,
-          track: track.indexInFolder ?? 0,
-        };
-        selectionRef.current = next;
-        setSelection(next);
+      // La selección solo acompaña a la reproducción cuando ya estaba sobre
+      // la pista que sonaba (o sobre la nueva). Si el usuario la movió a otro
+      // lado, se queda quieta: OK siempre reproduce lo que se ve resaltado.
+      if (track != null) {
+        const sel = selectionRef.current;
+        const followedPrevious =
+          previous == null ||
+          (sel.folder === previous.folderIndex &&
+            sel.track === previous.indexInFolder);
+        const alreadyOnNew =
+          sel.folder === track.folderIndex &&
+          sel.track === track.indexInFolder;
+        if (followedPrevious || alreadyOnNew) {
+          const next = {
+            folder: track.folderIndex ?? 0,
+            track: track.indexInFolder ?? 0,
+          };
+          selectionRef.current = next;
+          setSelection(next);
+        }
       }
     },
   );
@@ -516,8 +504,8 @@ function PlayerScreen({
   const trackCount = groups.reduce((sum, g) => sum + g.tracks.length, 0);
   const diagnostics = (
     <Text style={styles.diagText} numberOfLines={1}>
-      estado: {String(playback.state ?? 'sin iniciar')} · {trackCount} pistas ·
-      carpeta {folderIndex + 1}/{groups.length}
+      v1.1 · estado: {String(playback.state ?? 'sin iniciar')} · {trackCount}{' '}
+      pistas · carpeta {folderIndex + 1}/{groups.length}
     </Text>
   );
 
