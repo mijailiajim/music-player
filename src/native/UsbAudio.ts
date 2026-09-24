@@ -1,13 +1,13 @@
+/**
+ * Adaptador del módulo nativo `UsbAudio` (Kotlin): volúmenes montados, listado
+ * de directorios, permisos de almacenamiento y volumen del sistema. Es el único
+ * punto de la app que habla con `NativeModules.UsbAudio`. La elección del
+ * pendrive vive en `RemovableVolumeSelector` (núcleo).
+ */
 import {NativeModules, Platform} from 'react-native';
-import type {DirEntry} from '../library';
+import type {DirEntry, StorageVolumeInfo} from '../core/model';
 
-export interface StorageVolumeInfo {
-  path: string;
-  description: string;
-  removable: boolean;
-  primary: boolean;
-  state: string;
-}
+export type {StorageVolumeInfo};
 
 interface UsbAudioNative {
   getVolumes(): Promise<StorageVolumeInfo[]>;
@@ -49,13 +49,3 @@ export const UsbAudio = {
     native?.adjustVolume(-1);
   },
 };
-
-/** Elige el volumen a reproducir: el extraíble montado que no sea el interno. */
-export function pickUsbVolume(
-  volumes: StorageVolumeInfo[],
-): StorageVolumeInfo | undefined {
-  return (
-    volumes.find(v => v.removable && !v.primary && v.state === 'mounted') ??
-    volumes.find(v => v.removable && v.state === 'mounted')
-  );
-}

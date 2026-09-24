@@ -1,4 +1,10 @@
-import React, {useCallback, useEffect, useRef, useState} from 'react';
+/**
+ * Capa de presentación y orquestación (React). No contiene reglas de negocio:
+ * compone las clases del núcleo (`src/core`) y los adaptadores
+ * (`src/adapters`), guarda el estado de la UI y conecta eventos (teclas del
+ * control, pistas activas, montaje del pendrive) con esas clases.
+ */
+import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AppState,
   DeviceEventEmitter,
@@ -10,22 +16,30 @@ import {
   View,
 } from 'react-native';
 import {SafeAreaProvider, SafeAreaView} from 'react-native-safe-area-context';
-import TrackPlayer, {
+import {
   Event,
   usePlaybackState,
   useTrackPlayerEvents,
 } from 'react-native-track-player';
+import {UsbMonitor} from './src/adapters/UsbMonitor';
 import Controls from './src/components/Controls';
 import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
-import {KeyCodes, RemoteKeyEvent} from './src/keymap';
+import {Selection} from './src/core/model';
+import {RemoteActions} from './src/core/remote/RemoteActions';
+import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
+import {SelectionModel} from './src/core/selection/SelectionModel';
+import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
+import {RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanVolume, totalTracks} from './src/library';
-import {pickUsbVolume, UsbAudio} from './src/native/UsbAudio';
+import {UsbAudio} from './src/native/UsbAudio';
 import {
   clearQueue,
   isPlayingState,
   loadQueue,
+  pause,
+  play,
   playTrackAt,
   QueueTrack,
   seekBy,
@@ -37,24 +51,32 @@ import {
 } from './src/player';
 import {colors} from './src/theme';
 
-type UsbStatus = 'esperando-usb' | 'escaneando' | 'reproduciendo' | 'sin-musica';
-
-interface Selection {
-  folder: number;
-  track: number;
-}
+type UsbStatus =
+  | 'esperando-usb'
+  | 'escaneando'
+  | 'reproduciendo'
+  | 'sin-musica';
 
 /** La selección vuelve a seguir al tema sonando tras esta pausa sin navegar. */
 const NAV_IDLE_MS = 15000;
 const POLL_INTERVAL_MS = 4000;
+/** El montaje del volumen tarda unos segundos tras enchufar el pendrive. */
+const USB_DEBOUNCE_MS = 900;
 
 export default function App() {
   const [hasPermission, setHasPermission] = useState(false);
   const [status, setStatus] = useState<UsbStatus>('esperando-usb');
   const [groups, setGroups] = useState<FolderGroup[]>([]);
   const [volumeDesc, setVolumeDesc] = useState('');
-  const [selection, setSelection] = useState<Selection>({folder: 0, track: 0});
+  const [selection, setSelection] = useState<Selection>({
+    folder: 0,
+    track: 0,
+  });
   const [activeTrack, setActiveTrack] = useState<QueueTrack | undefined>();
+
+  // Colaboradores del núcleo (sin estado propio: seguros de compartir).
+  const selectionModel = useMemo(() => new SelectionModel(), []);
+  const volumeSelector = useMemo(() => new RemovableVolumeSelector(), []);
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
@@ -64,7 +86,6 @@ export default function App() {
   const rootRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const lastNavRef = useRef(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const updateSelection = useCallback((next: Selection) => {
     lastNavRef.current = Date.now();
@@ -72,130 +93,83 @@ export default function App() {
     setSelection(next);
   }, []);
 
-  const moveSelection = useCallback(
-    (delta: number) => {
-      const gs = groupsRef.current;
-      if (gs.length === 0) {
-        return;
-      }
-      let {folder, track} = selectionRef.current;
-      track += delta;
-      if (track < 0) {
-        folder = (folder - 1 + gs.length) % gs.length;
-        track = gs[folder].tracks.length - 1;
-      } else if (track >= gs[folder].tracks.length) {
-        folder = (folder + 1) % gs.length;
-        track = 0;
-      }
-      updateSelection({folder, track});
-    },
-    [updateSelection],
+  /** Implementación concreta de lo que puede pedir el control remoto. */
+  const remoteActions = useMemo<RemoteActions>(
+    () => ({
+      moveCursor: delta => {
+        const gs = groupsRef.current;
+        if (gs.length > 0) {
+          updateSelection(
+            selectionModel.moveTrack(selectionRef.current, delta, gs),
+          );
+        }
+      },
+      moveFolder: delta => {
+        const gs = groupsRef.current;
+        if (gs.length > 0) {
+          updateSelection(
+            selectionModel.moveFolder(selectionRef.current, delta, gs),
+          );
+        }
+      },
+      playSelection: () => {
+        const gs = groupsRef.current;
+        if (gs.length > 0) {
+          playTrackAt(selectionModel.globalIndexOf(selectionRef.current, gs));
+        }
+      },
+      playFolderOffset: delta => {
+        const gs = groupsRef.current;
+        if (gs.length > 0) {
+          const from =
+            activeTrackRef.current?.folderIndex ?? selectionRef.current.folder;
+          playTrackAt(selectionModel.folderOffsetStartIndex(from, delta, gs));
+        }
+      },
+      togglePlayPause: () => {
+        togglePlayPause();
+      },
+      play: () => {
+        play();
+      },
+      pause: () => {
+        pause();
+      },
+      nextTrack: () => {
+        skipToNext();
+      },
+      previousTrack: () => {
+        skipToPrevious();
+      },
+      seekBy: seconds => {
+        seekBy(seconds);
+      },
+    }),
+    [selectionModel, updateSelection],
   );
 
-  const moveSelectionFolder = useCallback(
-    (delta: number) => {
-      const gs = groupsRef.current;
-      if (gs.length === 0) {
-        return;
-      }
-      const folder =
-        (selectionRef.current.folder + delta + gs.length) % gs.length;
-      updateSelection({folder, track: 0});
-    },
-    [updateSelection],
+  const remoteRouter = useMemo(
+    () => new RemoteControlRouter(remoteActions),
+    [remoteActions],
   );
 
-  const playSelection = useCallback(() => {
-    const gs = groupsRef.current;
-    if (gs.length === 0) {
-      return;
-    }
-    const sel = selectionRef.current;
-    const group = gs[Math.min(sel.folder, gs.length - 1)];
-    const track = Math.max(0, Math.min(sel.track, group.tracks.length - 1));
-    playTrackAt(group.startIndex + track);
-  }, []);
-
-  const playFolderOffset = useCallback((delta: number) => {
-    const gs = groupsRef.current;
-    if (gs.length === 0) {
-      return;
-    }
-    const current =
-      activeTrackRef.current?.folderIndex ?? selectionRef.current.folder;
-    const target = (current + delta + gs.length) % gs.length;
-    playTrackAt(gs[target].startIndex);
-  }, []);
-
+  /** Tocar una pista en pantalla: la selecciona y la reproduce. */
   const selectTrackInFolder = useCallback(
     (folder: number, indexInFolder: number) => {
       const gs = groupsRef.current;
       if (gs.length === 0) {
         return;
       }
-      const group = gs[Math.min(folder, gs.length - 1)];
-      updateSelection({folder, track: indexInFolder});
-      playTrackAt(group.startIndex + indexInFolder);
+      const next = {folder, track: indexInFolder};
+      updateSelection(next);
+      playTrackAt(selectionModel.globalIndexOf(next, gs));
     },
-    [updateSelection],
+    [selectionModel, updateSelection],
   );
 
-  const onRemoteKey = useCallback(
-    (event: RemoteKeyEvent) => {
-      switch (event.keyCode) {
-        case KeyCodes.DPAD_UP:
-          moveSelection(-1);
-          break;
-        case KeyCodes.DPAD_DOWN:
-          moveSelection(1);
-          break;
-        case KeyCodes.DPAD_LEFT:
-          moveSelectionFolder(-1);
-          break;
-        case KeyCodes.DPAD_RIGHT:
-          moveSelectionFolder(1);
-          break;
-        case KeyCodes.DPAD_CENTER:
-        case KeyCodes.ENTER:
-        case KeyCodes.NUMPAD_ENTER:
-        case KeyCodes.BUTTON_SELECT:
-        case KeyCodes.BUTTON_A:
-          playSelection();
-          break;
-        case KeyCodes.MEDIA_PLAY_PAUSE:
-        case KeyCodes.HEADSETHOOK:
-          togglePlayPause();
-          break;
-        case KeyCodes.MEDIA_PLAY:
-          TrackPlayer.play();
-          break;
-        case KeyCodes.MEDIA_PAUSE:
-        case KeyCodes.MEDIA_STOP:
-          TrackPlayer.pause();
-          break;
-        case KeyCodes.MEDIA_NEXT:
-          skipToNext();
-          break;
-        case KeyCodes.MEDIA_PREVIOUS:
-          skipToPrevious();
-          break;
-        case KeyCodes.MEDIA_FAST_FORWARD:
-          seekBy(SEEK_STEP_SECONDS);
-          break;
-        case KeyCodes.MEDIA_REWIND:
-          seekBy(-SEEK_STEP_SECONDS);
-          break;
-        case KeyCodes.CHANNEL_UP:
-        case KeyCodes.PAGE_DOWN:
-          playFolderOffset(1);
-          break;
-        case KeyCodes.CHANNEL_DOWN:
-        case KeyCodes.PAGE_UP:
-          playFolderOffset(-1);
-          break;
-      }
-    },
-    [moveSelection, moveSelectionFolder, playSelection, playFolderOffset],
+  const playFolderOffset = useCallback(
+    (delta: number) => remoteActions.playFolderOffset(delta),
+    [remoteActions],
   );
 
   const refreshVolumes = useCallback(async () => {
@@ -205,7 +179,7 @@ export default function App() {
     busyRef.current = true;
     try {
       const volumes = await UsbAudio.getVolumes();
-      const usb = pickUsbVolume(volumes);
+      const usb = volumeSelector.pick(volumes);
       if (!usb) {
         if (rootRef.current != null) {
           rootRef.current = null;
@@ -243,18 +217,7 @@ export default function App() {
     } finally {
       busyRef.current = false;
     }
-  }, []);
-
-  const scheduleRefresh = useCallback(() => {
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-    // El montaje del volumen tarda unos segundos tras enchufar el pendrive.
-    debounceRef.current = setTimeout(() => {
-      debounceRef.current = null;
-      refreshVolumes();
-    }, 900);
-  }, [refreshVolumes]);
+  }, [volumeSelector]);
 
   const recheckPermission = useCallback(async () => {
     const granted = await UsbAudio.hasStorageAccess();
@@ -283,10 +246,10 @@ export default function App() {
     activeTrackRef.current = track;
     setActiveTrack(track);
     if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
-      const next = {
-        folder: track.folderIndex ?? 0,
-        track: track.indexInFolder ?? 0,
-      };
+      const next = selectionModel.fromActiveTrack(
+        track.folderIndex ?? 0,
+        track.indexInFolder ?? 0,
+      );
       selectionRef.current = next;
       setSelection(next);
     }
@@ -310,30 +273,28 @@ export default function App() {
       }
     })();
 
-    const usbSub = DeviceEventEmitter.addListener(
-      'usbStorageChanged',
-      scheduleRefresh,
+    const stopUsbMonitor = new UsbMonitor(
+      refreshVolumes,
+      POLL_INTERVAL_MS,
+      USB_DEBOUNCE_MS,
+    ).start();
+    const keySub = DeviceEventEmitter.addListener(
+      'remoteKey',
+      (event: RemoteKeyEvent) => remoteRouter.handle(event.keyCode),
     );
-    const keySub = DeviceEventEmitter.addListener('remoteKey', onRemoteKey);
     const appSub = AppState.addEventListener('change', state => {
       if (state === 'active') {
         recheckPermission();
       }
     });
-    // Red de seguridad por si algún broadcast no llega (varía según OEM).
-    const poll = setInterval(refreshVolumes, POLL_INTERVAL_MS);
 
     return () => {
       cancelled = true;
-      usbSub.remove();
+      stopUsbMonitor();
       keySub.remove();
       appSub.remove();
-      clearInterval(poll);
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
     };
-  }, [onRemoteKey, recheckPermission, refreshVolumes, scheduleRefresh]);
+  }, [recheckPermission, refreshVolumes, remoteRouter]);
 
   const statusKind: StatusKind | null =
     Platform.OS !== 'android'
