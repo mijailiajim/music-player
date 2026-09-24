@@ -28,16 +28,16 @@ import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
 import SignalBar from './src/components/SignalBar';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
-import {Selection} from './src/core/model';
+import {BrowseState, FolderBrowser} from './src/core/browser/FolderBrowser';
+import {MusicLibrary} from './src/core/library/MusicLibrary';
 import {RemoteActions} from './src/core/remote/RemoteActions';
 import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
-import {SelectionModel} from './src/core/selection/SelectionModel';
 import {KeyNameResolver} from './src/core/signals/KeyNameResolver';
 import {SignalFactory} from './src/core/signals/SignalFactory';
 import {SignalFeed} from './src/core/signals/SignalFeed';
 import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
 import {RemoteKeyEvent} from './src/keymap';
-import {FolderGroup, scanVolume, totalTracks} from './src/library';
+import {FolderGroup, scanLibrary, totalTracks, TrackInfo} from './src/library';
 import {MusicVolumeEvent, UsbAudio} from './src/native/UsbAudio';
 import {
   clearQueue,
@@ -62,7 +62,7 @@ type UsbStatus =
   | 'reproduciendo'
   | 'sin-musica';
 
-/** La selección vuelve a seguir al tema sonando tras esta pausa sin navegar. */
+/** El navegador vuelve a mostrar el tema sonando tras esta pausa sin navegar. */
 const NAV_IDLE_MS = 15000;
 const POLL_INTERVAL_MS = 4000;
 /** El montaje del volumen tarda unos segundos tras enchufar el pendrive. */
@@ -73,14 +73,12 @@ export default function App() {
   const [status, setStatus] = useState<UsbStatus>('esperando-usb');
   const [groups, setGroups] = useState<FolderGroup[]>([]);
   const [volumeDesc, setVolumeDesc] = useState('');
-  const [selection, setSelection] = useState<Selection>({
-    folder: 0,
-    track: 0,
-  });
+  // Navegador de carpetas del pendrive y qué se está mirando en él.
+  const [browser, setBrowser] = useState<FolderBrowser | null>(null);
+  const [browse, setBrowse] = useState<BrowseState>({dir: '', cursor: 0});
   const [activeTrack, setActiveTrack] = useState<QueueTrack | undefined>();
 
   // Colaboradores del núcleo (sin estado propio: seguros de compartir).
-  const selectionModel = useMemo(() => new SelectionModel(), []);
   const volumeSelector = useMemo(() => new RemovableVolumeSelector(), []);
 
   // Línea de señales: lo que llega al apretar cada botón del control. Solo se
@@ -97,44 +95,76 @@ export default function App() {
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
-  const selectionRef = useRef<Selection>({folder: 0, track: 0});
+  const browserRef = useRef<FolderBrowser | null>(null);
+  const browseRef = useRef<BrowseState>({dir: '', cursor: 0});
   const activeTrackRef = useRef<QueueTrack | undefined>(undefined);
   const hasPermissionRef = useRef(false);
   const rootRef = useRef<string | null>(null);
   const busyRef = useRef(false);
   const lastNavRef = useRef(0);
 
-  const updateSelection = useCallback((next: Selection) => {
-    lastNavRef.current = Date.now();
-    selectionRef.current = next;
-    setSelection(next);
+  /** Muestra otra carpeta/ítem sin contar como navegación (seguir al tema). */
+  const showBrowse = useCallback((next: BrowseState) => {
+    browseRef.current = next;
+    setBrowse(next);
+  }, []);
+
+  /** Navegación del usuario: pausa el seguimiento del tema que suena. */
+  const updateBrowse = useCallback(
+    (next: BrowseState) => {
+      lastNavRef.current = Date.now();
+      showBrowse(next);
+    },
+    [showBrowse],
+  );
+
+  /** Reproduce una canción del pendrive (por su posición en la cola). */
+  const playTrack = useCallback((track: TrackInfo) => {
+    playTrackAt(new MusicLibrary(groupsRef.current).queueIndexOf(track));
   }, []);
 
   /** Implementación concreta de lo que puede pedir el control remoto. */
   const remoteActions = useMemo<RemoteActions>(
     () => ({
       moveCursor: delta => {
-        const gs = groupsRef.current;
-        if (gs.length > 0) {
-          updateSelection(
-            selectionModel.moveTrack(selectionRef.current, delta, gs),
-          );
+        const b = browserRef.current;
+        if (b) {
+          updateBrowse(b.moveCursor(browseRef.current, delta));
         }
       },
-      moveFolder: delta => {
-        const gs = groupsRef.current;
-        if (gs.length > 0) {
-          updateSelection(
-            selectionModel.moveFolder(selectionRef.current, delta, gs),
-          );
+      playAdjacent: delta => {
+        const next = browserRef.current?.adjacentTrack(
+          browseRef.current,
+          delta,
+        );
+        if (next) {
+          updateBrowse(next.state);
+          playTrack(next.track);
+        }
+      },
+      playSelection: () => {
+        const item = browserRef.current?.selected(browseRef.current);
+        if (item?.kind === 'track') {
+          playTrack(item.track);
+        }
+      },
+      goUp: () => {
+        const b = browserRef.current;
+        if (b) {
+          updateBrowse(b.up(browseRef.current));
+        }
+      },
+      enterFolder: () => {
+        const b = browserRef.current;
+        if (b) {
+          updateBrowse(b.enter(browseRef.current));
         }
       },
       playFolderOffset: delta => {
         const gs = groupsRef.current;
         if (gs.length > 0) {
-          const from =
-            activeTrackRef.current?.folderIndex ?? selectionRef.current.folder;
-          playTrackAt(selectionModel.folderOffsetStartIndex(from, delta, gs));
+          const from = activeTrackRef.current?.folderIndex ?? 0;
+          playTrackAt(new MusicLibrary(gs).folderOffsetStartIndex(from, delta));
         }
       },
       togglePlayPause: () => {
@@ -156,7 +186,7 @@ export default function App() {
         seekBy(seconds);
       },
     }),
-    [selectionModel, updateSelection],
+    [playTrack, updateBrowse],
   );
 
   const remoteRouter = useMemo(
@@ -164,19 +194,26 @@ export default function App() {
     [remoteActions],
   );
 
-  /** Tocar una pista en pantalla: la selecciona y la reproduce. */
-  const selectTrackInFolder = useCallback(
-    (folder: number, indexInFolder: number) => {
-      const gs = groupsRef.current;
-      if (gs.length === 0) {
+  /** Tocar un ítem en pantalla: una carpeta se abre; una canción se reproduce. */
+  const pressItem = useCallback(
+    (index: number) => {
+      const b = browserRef.current;
+      if (!b) {
         return;
       }
-      const next = {folder, track: indexInFolder};
-      updateSelection(next);
-      playTrackAt(selectionModel.globalIndexOf(next, gs));
+      const touched = {dir: browseRef.current.dir, cursor: index};
+      const item = b.selected(touched);
+      if (item?.kind === 'folder') {
+        updateBrowse(b.enter(touched));
+      } else if (item?.kind === 'track') {
+        updateBrowse(touched);
+        playTrack(item.track);
+      }
     },
-    [selectionModel, updateSelection],
+    [playTrack, updateBrowse],
   );
+
+  const goUp = useCallback(() => remoteActions.goUp(), [remoteActions]);
 
   const playFolderOffset = useCallback(
     (delta: number) => remoteActions.playFolderOffset(delta),
@@ -196,6 +233,8 @@ export default function App() {
           rootRef.current = null;
           groupsRef.current = [];
           setGroups([]);
+          browserRef.current = null;
+          setBrowser(null);
           activeTrackRef.current = undefined;
           setActiveTrack(undefined);
           setStatus('esperando-usb');
@@ -209,18 +248,26 @@ export default function App() {
       rootRef.current = usb.path;
       setVolumeDesc(usb.description || 'Pendrive USB');
       setStatus('escaneando');
-      const found = await scanVolume(usb.path, UsbAudio.listDir);
+      const {tree, groups: found} = await scanLibrary(
+        usb.path,
+        UsbAudio.listDir,
+      );
       if (rootRef.current !== usb.path) {
         return; // lo desconectaron durante el escaneo
       }
       groupsRef.current = found;
       setGroups(found);
+      const nextBrowser = new FolderBrowser(tree);
+      browserRef.current = nextBrowser;
+      setBrowser(nextBrowser);
       if (totalTracks(found) === 0) {
         setStatus('sin-musica');
         await clearQueue();
       } else {
-        selectionRef.current = {folder: 0, track: 0};
-        setSelection({folder: 0, track: 0});
+        // Se muestra la carpeta del primer tema, que es el que arranca solo.
+        showBrowse(
+          nextBrowser.reveal(found[0].tracks[0].path) ?? nextBrowser.start(),
+        );
         setStatus('reproduciendo');
         await loadQueue(found, true);
       }
@@ -228,7 +275,7 @@ export default function App() {
     } finally {
       busyRef.current = false;
     }
-  }, [volumeSelector]);
+  }, [showBrowse, volumeSelector]);
 
   const recheckPermission = useCallback(async () => {
     const granted = await UsbAudio.hasStorageAccess();
@@ -265,13 +312,14 @@ export default function App() {
       const track = event.track as QueueTrack | undefined;
       activeTrackRef.current = track;
       setActiveTrack(track);
-      if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
-        const next = selectionModel.fromActiveTrack(
-          track.folderIndex ?? 0,
-          track.indexInFolder ?? 0,
-        );
-        selectionRef.current = next;
-        setSelection(next);
+      if (
+        typeof track?.id === 'string' &&
+        Date.now() - lastNavRef.current > NAV_IDLE_MS
+      ) {
+        const next = browserRef.current?.reveal(track.id);
+        if (next) {
+          showBrowse(next);
+        }
       }
     },
   );
@@ -356,9 +404,11 @@ export default function App() {
         ) : (
           <PlayerScreen
             groups={groups}
-            selection={selection}
+            browser={browser}
+            browse={browse}
             activeTrack={activeTrack}
-            onSelectTrack={selectTrackInFolder}
+            onPressItem={pressItem}
+            onGoUp={goUp}
             onPlayPause={togglePlayPause}
             onPrevTrack={skipToPrevious}
             onNextTrack={skipToNext}
@@ -378,9 +428,11 @@ export default function App() {
 
 interface PlayerScreenProps {
   groups: FolderGroup[];
-  selection: Selection;
+  browser: FolderBrowser | null;
+  browse: BrowseState;
   activeTrack?: QueueTrack;
-  onSelectTrack: (folder: number, indexInFolder: number) => void;
+  onPressItem: (index: number) => void;
+  onGoUp: () => void;
   onPlayPause: () => void;
   onPrevTrack: () => void;
   onNextTrack: () => void;
@@ -394,9 +446,11 @@ interface PlayerScreenProps {
 
 function PlayerScreen({
   groups,
-  selection,
+  browser,
+  browse,
   activeTrack,
-  onSelectTrack,
+  onPressItem,
+  onGoUp,
   ...controls
 }: PlayerScreenProps) {
   const {width, height} = useWindowDimensions();
@@ -404,12 +458,10 @@ function PlayerScreen({
   const playback = usePlaybackState();
   const playing = isPlayingState(playback.state);
 
-  const folderIndex = Math.min(selection.folder, groups.length - 1);
-  const group = groups[folderIndex];
-  const activeTrackIndex =
-    activeTrack != null && activeTrack.folderIndex === folderIndex
-      ? activeTrack.indexInFolder
-      : -1;
+  const items = useMemo(
+    () => (browser ? browser.items(browse) : []),
+    [browser, browse],
+  );
   const folderTrackCount =
     activeTrack != null
       ? groups[activeTrack.folderIndex]?.tracks.length ?? 0
@@ -439,12 +491,15 @@ function PlayerScreen({
   );
   const list = (
     <FolderList
-      group={group}
-      folderNumber={folderIndex + 1}
-      folderCount={groups.length}
-      selectedTrack={selection.track}
-      activeTrackIndex={activeTrackIndex}
-      onSelectTrack={index => onSelectTrack(folderIndex, index)}
+      title={browser?.folderOf(browse).label ?? ''}
+      items={items}
+      selectedIndex={browse.cursor}
+      activeTrackPath={
+        typeof activeTrack?.id === 'string' ? activeTrack.id : undefined
+      }
+      canGoUp={browser?.canGoUp(browse) ?? false}
+      onPressItem={onPressItem}
+      onGoUp={onGoUp}
     />
   );
 

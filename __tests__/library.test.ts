@@ -5,6 +5,7 @@ import {
   flattenGroups,
   isAudioFile,
   ROOT_FOLDER_NAME,
+  scanLibrary,
   scanVolume,
 } from '../src/library';
 
@@ -165,5 +166,65 @@ describe('scanVolume', () => {
     });
 
     expect(flattenGroups(groups)).toHaveLength(10);
+  });
+});
+
+describe('scanLibrary (árbol de carpetas para navegar)', () => {
+  it('incluye TODAS las carpetas, tengan o no música, sin las ocultas ni de sistema', async () => {
+    const tree = {
+      [ROOT]: [
+        folder(ROOT, 'Videos'),
+        folder(ROOT, 'Musica'),
+        folder(ROOT, 'Fotos'),
+        folder(ROOT, '.oculta'),
+        folder(ROOT, 'LOST.DIR'),
+      ],
+      [`${ROOT}/Fotos`]: [file(`${ROOT}/Fotos`, 'foto.jpg')],
+      [`${ROOT}/Musica`]: [
+        file(`${ROOT}/Musica`, 'b.mp3'),
+        file(`${ROOT}/Musica`, 'leeme.txt'),
+        file(`${ROOT}/Musica`, 'a.mp3'),
+      ],
+      [`${ROOT}/Videos`]: [],
+    };
+    const {tree: root} = await scanLibrary(ROOT, fakeListDir(tree));
+
+    expect(root.label).toBe(ROOT_FOLDER_NAME);
+    expect(root.folders.map(f => f.name)).toEqual(['Fotos', 'Musica', 'Videos']);
+    expect(root.folders.map(f => f.trackCount)).toEqual([0, 2, 0]);
+    // Adentro, solo lo reproducible y en orden alfabético.
+    expect(root.folders[0].tracks).toEqual([]);
+    expect(root.folders[1].tracks.map(t => t.title)).toEqual(['a', 'b']);
+  });
+
+  it('anida las subcarpetas y cuenta sus canciones en la carpeta madre', async () => {
+    const tree = {
+      [ROOT]: [folder(ROOT, 'A')],
+      [`${ROOT}/A`]: [
+        file(`${ROOT}/A`, 'a1.mp3'),
+        folder(`${ROOT}/A`, 'A-sub'),
+        folder(`${ROOT}/A`, 'A-vacia'),
+      ],
+      [`${ROOT}/A/A-sub`]: [file(`${ROOT}/A/A-sub`, 'sub.mp3')],
+      [`${ROOT}/A/A-vacia`]: [],
+    };
+    const {tree: root} = await scanLibrary(ROOT, fakeListDir(tree));
+    const a = root.folders[0];
+
+    expect(a.trackCount).toBe(2);
+    expect(a.folders.map(f => f.name)).toEqual(['A-sub', 'A-vacia']);
+    expect(a.folders[0].label).toBe('A / A-sub');
+    expect(root.trackCount).toBe(2);
+  });
+
+  it('la cola es la misma que la de scanVolume', async () => {
+    const tree = {
+      [ROOT]: [file(ROOT, 'raiz.mp3'), folder(ROOT, 'B'), folder(ROOT, 'A')],
+      [`${ROOT}/A`]: [file(`${ROOT}/A`, 'a.mp3')],
+      [`${ROOT}/B`]: [file(`${ROOT}/B`, 'b.mp3')],
+    };
+    const {groups} = await scanLibrary(ROOT, fakeListDir(tree));
+
+    expect(groups).toEqual(await scanVolume(ROOT, fakeListDir(tree)));
   });
 });

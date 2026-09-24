@@ -29,6 +29,24 @@ export interface FolderGroup {
   tracks: TrackInfo[];
 }
 
+/**
+ * Carpeta del pendrive tal como se navega: TODAS sus subcarpetas (tengan o no
+ * música, sin las ocultas ni las de sistema) y sus canciones reproducibles.
+ */
+export interface FolderNode {
+  /** Nombre de la carpeta (el de la raíz es `ROOT_FOLDER_NAME`). */
+  name: string;
+  /** Ruta desde la raíz para mostrar, p. ej. "A / A-sub". */
+  label: string;
+  path: string;
+  /** Subcarpetas en orden alfabético. */
+  folders: FolderNode[];
+  /** Canciones reproducibles de esta carpeta, en orden alfabético. */
+  tracks: TrackInfo[];
+  /** Canciones reproducibles en esta carpeta y en todas sus subcarpetas. */
+  trackCount: number;
+}
+
 /** Volumen de almacenamiento reportado por el sistema. */
 export interface StorageVolumeInfo {
   path: string;
@@ -36,10 +54,4 @@ export interface StorageVolumeInfo {
   removable: boolean;
   primary: boolean;
   state: string;
-}
-
-/** Ítem resaltado: carpeta y pista dentro de ella. */
-export interface Selection {
-  folder: number;
-  track: number;
 }

@@ -4,13 +4,13 @@ import {RemoteActions} from './RemoteActions';
 import {RemoteCommand} from './RemoteCommand';
 import {
   MoveCursorCommand,
-  MoveFolderCommand,
   NextTrackCommand,
   OkButtonCommand,
   PageDownCommand,
   PageUpCommand,
   PauseCommand,
   PlayCommand,
+  PlayAdjacentTrackCommand,
   PlayFolderOffsetCommand,
   PreviousTrackCommand,
   SeekCommand,
@@ -21,10 +21,10 @@ import {
  * Traduce los códigos de tecla del control a comandos y los ejecuta contra las
  * `RemoteActions` de la app. El mapeo modela un explorador de archivos:
  *
- *   ▲ / ▼            mover el cursor
- *   ◀ / ▶            cambiar de carpeta
- *   OK / Enter       anulado: función vacía (OkButtonCommand)
- *   Re Pág / Av Pág  anulados: funciones vacías (PageUpCommand/PageDownCommand)
+ *   ▲ / ▼            mover el cursor (sin dar la vuelta)
+ *   ◀ / ▶            reproducir la canción anterior / siguiente de la lista
+ *   OK / Enter       reproducir la canción resaltada
+ *   Re Pág / Av Pág  subir un nivel / entrar a la carpeta resaltada
  *   Canal − / +      reproducir la carpeta anterior / siguiente
  *   multimedia       play/pausa, anterior/siguiente, adelantar/atrasar
  */
@@ -52,8 +52,8 @@ export class RemoteControlRouter {
 
     bind([KeyCodes.DPAD_UP], new MoveCursorCommand(-1));
     bind([KeyCodes.DPAD_DOWN], new MoveCursorCommand(1));
-    bind([KeyCodes.DPAD_LEFT], new MoveFolderCommand(-1));
-    bind([KeyCodes.DPAD_RIGHT], new MoveFolderCommand(1));
+    bind([KeyCodes.DPAD_LEFT], new PlayAdjacentTrackCommand(-1));
+    bind([KeyCodes.DPAD_RIGHT], new PlayAdjacentTrackCommand(1));
     // Todas las teclas de confirmación: la del OK del control es una de ellas.
     bind(
       [

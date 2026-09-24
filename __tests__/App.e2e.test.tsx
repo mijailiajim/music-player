@@ -5,14 +5,16 @@
  * hace ahora mismo, incluyendo detalles que el usuario reportó desde el
  * dispositivo real.
  *
- * Nota sobre el botón OK REDONDO y Re Pág/Av Pág: están ANULADOS. El OK manda
- * una tecla de confirmación (DPAD_CENTER/ENTER…) que Android convertía en un
- * clic sobre el botón enfocado de la pantalla (⏮) antes de que la app la viera:
- * por eso sonaba la pista anterior y solo se veían las señales `buffering →
- * ready → playing`. Ahora MainActivity captura esas teclas antes que la
- * interfaz (prevent default) y las reenvía; la app las manda a su clase
- * (OkButtonCommand, PageUpCommand, PageDownCommand), cuya función está vacía:
- * no hacen nada. Dónde quedó el cursor se comprueba en la lista (FolderList).
+ * Notas sobre el control del usuario:
+ *  - El botón OK redondo manda ENTER(66). Android convertía esa tecla en un
+ *    clic sobre el botón enfocado de la pantalla (⏮) antes de que la app la
+ *    viera; ahora MainActivity la captura primero (prevent default) y la app
+ *    reproduce la canción SELECCIONADA (OkButtonCommand).
+ *  - La lista es un navegador de carpetas: Re Pág sube un nivel y Av Pág entra
+ *    a la carpeta resaltada. Se ven TODAS las carpetas (tengan o no música) y
+ *    adentro solo las canciones reproducibles.
+ *  - ▲/▼ mueven el cursor y ◀/▶ reproducen la canción anterior/siguiente; en
+ *    los extremos no dan la vuelta.
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
@@ -24,6 +26,7 @@ import {
   PageUpCommand,
 } from '../src/core/remote/commands';
 import {KeyCodes} from '../src/keymap';
+import {ROOT_FOLDER_NAME} from '../src/library';
 
 // La app trata a iOS como "no soportado"; para el test se comporta como Android.
 (Platform as {OS: string}).OS = 'android';
@@ -240,6 +243,13 @@ function expectNoPlayerCalls() {
 
 let root: TestRenderer.ReactTestRenderer | null = null;
 
+/** Lo que muestra la lista: "📁 carpeta" o el título de la canción. */
+function listed(): string[] {
+  return mockCaptured.folderList.items.map((item: any) =>
+    item.kind === 'folder' ? `📁 ${item.folder.name}` : item.track.title,
+  );
+}
+
 /** Texto de la línea de señales (abajo de todo). */
 function signalText(): string {
   return root!.root
@@ -282,83 +292,111 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     expect(mockPlayer.play).toHaveBeenCalled();
 
     // Cuando la pista activa llega (evento de la sesión de medios), la app la
-    // muestra y resalta en la carpeta correcta ("Musica").
+    // muestra y la lista abre su carpeta ("Musica") con ella resaltada.
     act(() => {
       tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[0]});
     });
     await flush();
     expect(mockCaptured.nowPlaying.track.title).toBe('01 Cancion');
-    expect(mockCaptured.folderList.group.name).toBe('Musica');
-    expect(mockCaptured.folderList.folderCount).toBe(1);
-    expect(mockCaptured.folderList.group.tracks).toHaveLength(36);
-    expect(mockCaptured.folderList.activeTrackIndex).toBe(0);
+    const list = mockCaptured.folderList;
+    expect(list.title).toBe('Musica');
+    expect(list.items).toHaveLength(36);
+    expect(listed()[0]).toBe('01 Cancion');
+    expect(list.selectedIndex).toBe(0);
+    expect(list.activeTrackPath).toBe(added[0].id);
+    expect(list.canGoUp).toBe(true);
   });
 
-  it('BOTÓN OK redondo: se captura y no hace nada (su función está vacía)', async () => {
+  it('BOTÓN OK redondo (ENTER): reproduce la canción SELECCIONADA', async () => {
     const okSpy = jest.spyOn(OkButtonCommand.prototype, 'execute');
     try {
       await mountAndLoad();
       const added = mockPlayer.add.mock.calls[0][0]; // 36 pistas en orden
-      // Está sonando la 3ª (índice 2) y el cursor queda en la 8ª (índice 7).
+      // Suena la 3ª (índice 2): la lista la sigue. El cursor baja a la 8ª.
       act(() => {
         tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[2]});
       });
+      await flush();
+      expect(mockCaptured.folderList.selectedIndex).toBe(2);
       for (let i = 0; i < 5; i++) {
         emitKey(KeyCodes.DPAD_DOWN);
       }
       await flush();
-      expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion');
-      expect(mockCaptured.folderList.selectedTrack).toBe(7);
+      expect(mockCaptured.folderList.selectedIndex).toBe(7);
 
-      // Se aprieta OK: la pulsación se captura (se ve en la línea de señales)
-      // y llega a OkButtonCommand, que no hace nada.
+      // OK: se captura (se ve en la línea de señales) y reproduce la
+      // seleccionada (la 8ª, índice 7), no la anterior.
       clearPlayerCalls();
-      emitKey(KeyCodes.DPAD_CENTER);
+      emitKey(KeyCodes.ENTER);
       await flush();
       expect(okSpy).toHaveBeenCalledTimes(1);
-      expect(signalText()).toContain('DPAD_CENTER(23)');
-
-      // Igual con cualquier otra tecla de confirmación que pueda mandar el OK.
-      const otherOkKeys = [
-        KeyCodes.ENTER,
-        KeyCodes.NUMPAD_ENTER,
-        KeyCodes.SPACE,
-        KeyCodes.BUTTON_SELECT,
-        KeyCodes.BUTTON_A,
-      ];
-      otherOkKeys.forEach(emitKey);
-      await flush();
-      expect(okSpy).toHaveBeenCalledTimes(1 + otherOkKeys.length);
-
-      // Nada cambió: ni el reproductor, ni lo que suena, ni el cursor.
-      expectNoPlayerCalls();
-      expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion');
-      expect(mockCaptured.folderList.selectedTrack).toBe(7);
+      expect(signalText()).toContain('ENTER(66)');
+      expect(mockPlayer.skip).toHaveBeenCalledWith(7);
+      expect(mockPlayer.play).toHaveBeenCalled();
+      expect(mockPlayer.skipToPrevious).not.toHaveBeenCalled();
     } finally {
       okSpy.mockRestore();
     }
   });
 
-  it('PAGE ▲/▼ se capturan y no hacen nada (sus funciones están vacías)', async () => {
+  it('BOTÓN OK sobre una carpeta no hace nada', async () => {
+    await mountAndLoad();
+    emitKey(KeyCodes.PAGE_UP); // la raíz: solo carpetas
+    await flush();
+    clearPlayerCalls();
+    emitKey(KeyCodes.ENTER);
+    await flush();
+    expectNoPlayerCalls();
+    expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+  });
+
+  it('PAGE ▲ sube de nivel y PAGE ▼ entra: se ven TODAS las carpetas y adentro solo la música', async () => {
     const upSpy = jest.spyOn(PageUpCommand.prototype, 'execute');
     const downSpy = jest.spyOn(PageDownCommand.prototype, 'execute');
     try {
       await mountAndLoad();
-      const selectedBefore = mockCaptured.folderList.selectedTrack;
+      expect(mockCaptured.folderList.title).toBe('Musica');
       clearPlayerCalls();
 
-      emitKey(KeyCodes.PAGE_DOWN);
-      await flush();
-      expect(downSpy).toHaveBeenCalledTimes(1);
-      expect(signalText()).toContain('PAGE_DOWN(93)');
-
+      // ▲ Pág: sube a la raíz. Están las 3 carpetas, tengan o no música, con el
+      // cursor en la carpeta de la que se salió.
       emitKey(KeyCodes.PAGE_UP);
       await flush();
       expect(upSpy).toHaveBeenCalledTimes(1);
       expect(signalText()).toContain('PAGE_UP(92)');
+      const list = mockCaptured.folderList;
+      expect(list.title).toBe(ROOT_FOLDER_NAME);
+      expect(listed()).toEqual(['📁 Fotos', '📁 Musica', '📁 Videos']);
+      expect(list.items.map((item: any) => item.folder.trackCount)).toEqual([
+        0, 36, 0,
+      ]);
+      expect(list.selectedIndex).toBe(1);
+      expect(list.canGoUp).toBe(false);
 
+      // En la raíz, ▲ Pág ya no sube más.
+      emitKey(KeyCodes.PAGE_UP);
+      await flush();
+      expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+
+      // ▼ Pág: entra a la carpeta resaltada ("Musica").
+      emitKey(KeyCodes.PAGE_DOWN);
+      await flush();
+      expect(downSpy).toHaveBeenCalledTimes(1);
+      expect(signalText()).toContain('PAGE_DOWN(93)');
+      expect(mockCaptured.folderList.title).toBe('Musica');
+      expect(mockCaptured.folderList.items).toHaveLength(36);
+      expect(mockCaptured.folderList.selectedIndex).toBe(0);
+
+      // Dentro de "Fotos" solo se muestra música reproducible: nada (la foto no).
+      emitKey(KeyCodes.PAGE_UP);
+      emitKey(KeyCodes.DPAD_UP);
+      emitKey(KeyCodes.PAGE_DOWN);
+      await flush();
+      expect(mockCaptured.folderList.title).toBe('Fotos');
+      expect(mockCaptured.folderList.items).toEqual([]);
+
+      // Navegar no toca la reproducción.
       expectNoPlayerCalls();
-      expect(mockCaptured.folderList.selectedTrack).toBe(selectedBefore);
     } finally {
       upSpy.mockRestore();
       downSpy.mockRestore();
@@ -398,19 +436,29 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     expect(mockPlayer.pause).toHaveBeenCalled();
   });
 
-  it('las flechas ▲/▼ mueven el cursor', async () => {
+  it('las flechas ▲/▼ mueven el cursor, sin dar la vuelta en los extremos', async () => {
     await mountAndLoad();
-    // Bajar 3: el cursor queda en la 4ª (índice 3).
-    emitKey(KeyCodes.DPAD_DOWN);
-    emitKey(KeyCodes.DPAD_DOWN);
-    emitKey(KeyCodes.DPAD_DOWN);
-    await flush();
-    expect(mockCaptured.folderList.selectedTrack).toBe(3);
-
-    // Subir 1 → la 3ª (índice 2).
+    // Arriba de todo, ▲ no salta al final.
     emitKey(KeyCodes.DPAD_UP);
     await flush();
-    expect(mockCaptured.folderList.selectedTrack).toBe(2);
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
+
+    // Bajar 3: el cursor queda en la 4ª (índice 3). Subir 1: la 3ª.
+    emitKey(KeyCodes.DPAD_DOWN);
+    emitKey(KeyCodes.DPAD_DOWN);
+    emitKey(KeyCodes.DPAD_DOWN);
+    await flush();
+    expect(mockCaptured.folderList.selectedIndex).toBe(3);
+    emitKey(KeyCodes.DPAD_UP);
+    await flush();
+    expect(mockCaptured.folderList.selectedIndex).toBe(2);
+
+    // Abajo de todo, ▼ no vuelve al principio.
+    for (let i = 0; i < 40; i++) {
+      emitKey(KeyCodes.DPAD_DOWN);
+    }
+    await flush();
+    expect(mockCaptured.folderList.selectedIndex).toBe(35);
   });
 
   it('los botones de volumen en pantalla ajustan el volumen del sistema', async () => {
@@ -430,20 +478,56 @@ describe('Pendrive con varias carpetas (navegación entre carpetas)', () => {
     mockFs = fsVariasCarpetas();
   });
 
-  it('las flechas ◀/▶ se mueven entre carpetas', async () => {
+  it('las flechas ◀/▶ seleccionan y reproducen la canción anterior/siguiente; en los extremos no hacen nada', async () => {
     await mountAndLoad();
-    // Grupos ordenados: A-Rock, B-Pop, C-Jazz.
-    expect(mockCaptured.folderList.folderCount).toBe(3);
-    expect(mockCaptured.folderList.group.name).toBe('A-Rock');
+    // Se ve "A-Rock" (a1, a2) con a1 resaltada. Cola: a1 a2 b1 b2 c1 c2.
+    expect(mockCaptured.folderList.title).toBe('A-Rock');
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
+    clearPlayerCalls();
 
-    emitKey(KeyCodes.DPAD_RIGHT); // carpeta 1 → 2 (B-Pop)
+    // ◀ en la primera: nada (no salta al final).
+    emitKey(KeyCodes.DPAD_LEFT);
     await flush();
-    expect(mockCaptured.folderList.group.name).toBe('B-Pop');
-    expect(mockCaptured.folderList.folderNumber).toBe(2);
+    expectNoPlayerCalls();
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
 
-    emitKey(KeyCodes.DPAD_LEFT); // carpeta 2 → 1 (A-Rock)
+    // ▶: selecciona a2 y la reproduce (índice 1 de la cola).
+    emitKey(KeyCodes.DPAD_RIGHT);
     await flush();
-    expect(mockCaptured.folderList.group.name).toBe('A-Rock');
-    expect(mockCaptured.folderList.folderNumber).toBe(1);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
+    expect(mockPlayer.skip).toHaveBeenCalledWith(1);
+    expect(mockPlayer.play).toHaveBeenCalled();
+
+    // ▶ en la última: nada (ni vuelve al principio ni pasa a otra carpeta).
+    clearPlayerCalls();
+    emitKey(KeyCodes.DPAD_RIGHT);
+    await flush();
+    expectNoPlayerCalls();
+    expect(mockCaptured.folderList.title).toBe('A-Rock');
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
+
+    // ◀: vuelve a a1 y la reproduce.
+    emitKey(KeyCodes.DPAD_LEFT);
+    await flush();
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
+    expect(mockPlayer.skip).toHaveBeenCalledWith(0);
+  });
+
+  it('en pantalla: «Subir» sube, tocar una carpeta la abre y tocar una canción la reproduce', async () => {
+    await mountAndLoad();
+    act(() => mockCaptured.folderList.onGoUp());
+    await flush();
+    expect(listed()).toEqual(['📁 A-Rock', '📁 B-Pop', '📁 C-Jazz']);
+
+    act(() => mockCaptured.folderList.onPressItem(1)); // abre B-Pop
+    await flush();
+    expect(mockCaptured.folderList.title).toBe('B-Pop');
+    expect(listed()).toEqual(['b1', 'b2']);
+
+    clearPlayerCalls();
+    act(() => mockCaptured.folderList.onPressItem(1)); // toca b2
+    await flush();
+    expect(mockPlayer.skip).toHaveBeenCalledWith(3);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
   });
 });

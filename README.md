@@ -23,7 +23,8 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
   3. Al terminar el último tema, la cola vuelve a empezar.
 - **Pantalla adaptativa**: en vertical, el tema actual arriba y la lista debajo; en horizontal, tema y controles a la izquierda y la lista a la derecha. La pantalla no se apaga mientras la app está al frente.
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
-- **Control remoto Bluetooth**: navegación por la lista y entre carpetas con las flechas, play/pausa, tema anterior/siguiente, adelantar/atrasar 10 s y volumen (ver mapa de teclas abajo).
+- **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
+- **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para reproducir lo seleccionado, play/pausa, adelantar/atrasar 10 s y volumen (ver mapa de teclas abajo).
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
 - **Línea de señales** (abajo de todo): muestra lo que le llega a la app al apretar cada botón del control, con la hora: la tecla con su código (`DPAD_DOWN(20)`, `BACK(4)`, `MENU(82)`…), los cambios de estado del reproductor (`buffering`, `ready`, `playing`, `paused`), los comandos de la sesión de medios (`remote-…`) y el volumen (`volumen 8/15`). Si un botón manda varias señales se muestran todas en orden (p. ej. `buffering → ready → playing`), y si se repite la misma se cuenta con `×N`.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
@@ -52,17 +53,18 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 
 | Tecla del control | Acción en la app |
 |---|---|
-| ▲ / ▼ (D-pad) | Mover la selección por la lista (pasa de carpeta al llegar al borde) |
-| ◀ / ▶ (D-pad) | Ver carpeta anterior / siguiente (sin cortar la música) |
-| OK / Enter | Nada: anulado (se captura y su función está vacía) |
+| ▲ / ▼ (D-pad) | Mover la selección por la lista (en los extremos no da la vuelta) |
+| ◀ / ▶ (D-pad) | Seleccionar y reproducir la canción anterior / siguiente de la lista (en los extremos no hace nada) |
+| OK / Enter | Reproducir la canción seleccionada (sobre una carpeta no hace nada) |
+| Re Pág (Page ▲) | Subir un nivel de carpeta |
+| Av Pág (Page ▼) | Entrar a la carpeta seleccionada |
 | Play/Pausa | Alternar reproducción |
 | ⏮ / ⏭ | Tema anterior / siguiente |
 | ⏪ / ⏩ | Atrasar / adelantar 10 segundos |
 | Canal +/− | Saltar a la carpeta siguiente / anterior (reproduce ya) |
-| Re Pág / Av Pág | Nada: anulados (se capturan y sus funciones están vacías) |
 | Volumen +/− | Volumen del sistema (lo maneja Android directamente) |
 
-Los botones en pantalla replican todo: `⏮ «10s ▶/⏸ 10s» ⏭`, `◀ Carpeta / Carpeta ▶` y `Vol − / Vol +`.
+En pantalla: tocar una carpeta la abre, tocar una canción la reproduce y «⬆ Subir» sube de nivel; además están `⏮ «10s ▶/⏸ 10s» ⏭`, `◀ Carpeta / Carpeta ▶` (reproducen la carpeta con música anterior / siguiente) y `Vol − / Vol +`.
 
 ## Compilar e instalar
 

@@ -10,7 +10,7 @@
  *     archivos alfabéticos. Las subcarpetas se recorren en profundidad,
  *     inmediatamente después de su carpeta madre.
  */
-import {DirEntry, FolderGroup, TrackInfo} from './core/model';
+import {DirEntry, FolderGroup, FolderNode, TrackInfo} from './core/model';
 import {MusicLibrary} from './core/library/MusicLibrary';
 import {AudioFilePolicy} from './core/scanning/AudioFilePolicy';
 import {FileUrlFactory} from './core/scanning/FileUrlFactory';
@@ -19,10 +19,12 @@ import {SystemFolderFilter} from './core/scanning/SystemFolderFilter';
 import {
   ROOT_FOLDER_NAME,
   ScanOptions,
+  ScanResult,
   VolumeScanner,
 } from './core/scanning/VolumeScanner';
 
-export type {DirEntry, TrackInfo, FolderGroup, ScanOptions};
+export type {DirEntry, TrackInfo, FolderGroup, FolderNode, ScanOptions};
+export type {ScanResult};
 export type ListDir = (path: string) => Promise<DirEntry[]>;
 export {ROOT_FOLDER_NAME};
 
@@ -59,6 +61,15 @@ export function scanVolume(
   options: ScanOptions = {},
 ): Promise<FolderGroup[]> {
   return scanner.scan(rootPath, {list: listDir}, options);
+}
+
+/** Escanea una sola vez: árbol de carpetas para navegar + cola con música. */
+export function scanLibrary(
+  rootPath: string,
+  listDir: ListDir,
+  options: ScanOptions = {},
+): Promise<ScanResult> {
+  return scanner.scanTree(rootPath, {list: listDir}, options);
 }
 
 export function flattenGroups(groups: FolderGroup[]): TrackInfo[] {

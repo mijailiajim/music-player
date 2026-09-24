@@ -7,13 +7,10 @@
  * se registra el servicio, se capturan los manejadores y se invocan como lo haría
  * la sesión de medios.
  *
- * Sobre el botón OK redondo del control del usuario: su efecto observado es
- * "reproducir la pista anterior", y coincide con el manejador RemotePrevious de
- * abajo. OJO: en el dispositivo real ese botón NO se ve como un evento remoto,
- * solo como 3 señales de estado (buffering→ready→playing) — track-player lo
- * resuelve de forma nativa. Por eso el comportamiento observable del botón OK se
- * caracteriza con esas 3 señales en `App.e2e.test.tsx`; acá solo se fija qué hace
- * el manejador RemotePrevious cuando se dispara.
+ * El botón OK redondo del control del usuario NO pasa por la sesión de medios:
+ * manda la tecla ENTER(66), que la app captura y usa para reproducir la canción
+ * seleccionada (ver `App.e2e.test.tsx`). Acá solo se fija qué hace cada
+ * manejador cuando la sesión de medios lo dispara.
  */
 
 jest.mock('react-native-track-player', () => {
@@ -81,7 +78,7 @@ beforeEach(async () => {
 });
 
 describe('sesión de medios (MediaSession) — comportamiento actual', () => {
-  it('RemotePrevious reproduce la PISTA ANTERIOR (coincide con el efecto del botón OK), no la seleccionada', async () => {
+  it('RemotePrevious reproduce la pista anterior', async () => {
     expect(typeof handlers['remote-previous']).toBe('function');
     await handlers['remote-previous']();
     expect(mockTP.skipToPrevious).toHaveBeenCalledTimes(1);

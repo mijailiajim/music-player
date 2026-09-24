@@ -1,7 +1,7 @@
 import {RemoteActions} from './RemoteActions';
 import {RemoteCommand} from './RemoteCommand';
 
-/** Mueve el cursor por las pistas (−1 arriba, +1 abajo). */
+/** Flechas ▲ / ▼: mueven el cursor por la lista (−1 arriba, +1 abajo). */
 export class MoveCursorCommand implements RemoteCommand {
   constructor(private readonly delta: number) {}
   execute(actions: RemoteActions): void {
@@ -9,18 +9,21 @@ export class MoveCursorCommand implements RemoteCommand {
   }
 }
 
-/** Mueve el cursor entre carpetas (−1 anterior, +1 siguiente). */
-export class MoveFolderCommand implements RemoteCommand {
+/**
+ * Flechas ◀ / ▶: resaltan y reproducen la canción anterior (−1) o siguiente
+ * (+1) de la lista; en los extremos no hacen nada.
+ */
+export class PlayAdjacentTrackCommand implements RemoteCommand {
   constructor(private readonly delta: number) {}
   execute(actions: RemoteActions): void {
-    actions.moveFolder(this.delta);
+    actions.playAdjacent(this.delta);
   }
 }
 
-/** Botón OK (redondo) del control: anulado, no hace nada. */
+/** Botón OK (redondo) del control: reproduce la canción resaltada. */
 export class OkButtonCommand implements RemoteCommand {
-  execute(): void {
-    // Vacía a propósito: el botón OK no hace nada.
+  execute(actions: RemoteActions): void {
+    actions.playSelection();
   }
 }
 
@@ -32,17 +35,17 @@ export class PlayFolderOffsetCommand implements RemoteCommand {
   }
 }
 
-/** Botón Re Pág (Page ▲) del control: anulado, no hace nada. */
+/** Botón Re Pág (Page ▲) del control: sube un nivel de carpeta. */
 export class PageUpCommand implements RemoteCommand {
-  execute(): void {
-    // Vacía a propósito: el botón Page ▲ no hace nada.
+  execute(actions: RemoteActions): void {
+    actions.goUp();
   }
 }
 
-/** Botón Av Pág (Page ▼) del control: anulado, no hace nada. */
+/** Botón Av Pág (Page ▼) del control: entra a la carpeta resaltada. */
 export class PageDownCommand implements RemoteCommand {
-  execute(): void {
-    // Vacía a propósito: el botón Page ▼ no hace nada.
+  execute(actions: RemoteActions): void {
+    actions.enterFolder();
   }
 }
 
