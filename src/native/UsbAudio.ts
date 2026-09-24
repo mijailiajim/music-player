@@ -1,6 +1,7 @@
 /**
  * Adaptador del módulo nativo `UsbAudio` (Kotlin): volúmenes montados, listado
- * de directorios, permisos de almacenamiento y volumen del sistema. Es el único
+ * de directorios, permisos de almacenamiento, permiso para abrirse sola al
+ * conectar el pendrive y volumen del sistema. Es el único
  * punto de la app que habla con `NativeModules.UsbAudio`. La elección del
  * pendrive vive en `RemovableVolumeSelector` (núcleo).
  */
@@ -9,18 +10,13 @@ import type {DirEntry, StorageVolumeInfo} from '../core/model';
 
 export type {StorageVolumeInfo};
 
-/** Evento nativo "musicVolumeChanged": nuevo nivel del volumen multimedia. */
-export interface MusicVolumeEvent {
-  volume: number;
-  previous: number;
-  max: number;
-}
-
 interface UsbAudioNative {
   getVolumes(): Promise<StorageVolumeInfo[]>;
   listDir(path: string): Promise<DirEntry[]>;
   hasStorageAccess(): Promise<boolean>;
   requestStorageAccess(): Promise<boolean>;
+  canAutoOpen(): Promise<boolean>;
+  requestAutoOpen(): void;
   adjustVolume(direction: number): void;
 }
 
@@ -46,6 +42,16 @@ export const UsbAudio = {
 
   requestStorageAccess(): Promise<boolean> {
     return native ? native.requestStorageAccess() : Promise.resolve(false);
+  },
+
+  /** true si la app puede abrirse sola al conectar un pendrive. */
+  canAutoOpen(): Promise<boolean> {
+    return native ? native.canAutoOpen() : Promise.resolve(false);
+  },
+
+  /** Abre el ajuste del sistema que lo permite ("Mostrar sobre otras apps"). */
+  requestAutoOpen(): void {
+    native?.requestAutoOpen();
   },
 
   volumeUp(): void {

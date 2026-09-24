@@ -1,5 +1,6 @@
 /** Códigos de tecla de Android (android.view.KeyEvent) que reenvía MainActivity. */
 export const KeyCodes = {
+  BACK: 4,
   DPAD_UP: 19,
   DPAD_DOWN: 20,
   DPAD_LEFT: 21,
@@ -28,6 +29,6 @@ export const KeyCodes = {
 export interface RemoteKeyEvent {
   keyCode: number;
   repeatCount: number;
-  /** Nombre que da Android (`KeyEvent.keyCodeToString`), p. ej. "KEYCODE_BACK". */
-  keyName?: string;
+  /** Apretar o soltar (las teclas que la app necesita soltar mandan las dos). */
+  action?: 'down' | 'up';
 }

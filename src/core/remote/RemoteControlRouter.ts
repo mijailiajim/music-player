@@ -3,6 +3,7 @@ import {SEEK_STEP_SECONDS} from '../playback/constants';
 import {RemoteActions} from './RemoteActions';
 import {RemoteCommand} from './RemoteCommand';
 import {
+  BackButtonCommand,
   MoveCursorCommand,
   NextTrackCommand,
   OkButtonCommand,
@@ -10,10 +11,10 @@ import {
   PageUpCommand,
   PauseCommand,
   PlayCommand,
-  PlayAdjacentTrackCommand,
   PlayFolderOffsetCommand,
   PreviousTrackCommand,
   SeekCommand,
+  SkipOrScrubCommand,
   TogglePlayPauseCommand,
 } from './commands';
 
@@ -21,12 +22,16 @@ import {
  * Traduce los códigos de tecla del control a comandos y los ejecuta contra las
  * `RemoteActions` de la app. El mapeo modela un explorador de archivos:
  *
- *   ▲ / ▼            mover el cursor (sin dar la vuelta)
- *   ◀ / ▶            reproducir la canción anterior / siguiente de la lista
- *   OK / Enter       reproducir la canción resaltada
+ *   ▲ / ▼            mover el cursor (mantenidas: 3 por segundo; sin dar la vuelta)
+ *   ◀ / ▶            canción anterior / siguiente (mantenidas: atrasar / adelantar)
+ *   OK / Enter       reproducir la canción resaltada (si ya suena: pausa/play)
  *   Re Pág / Av Pág  subir un nivel / entrar a la carpeta resaltada
+ *   Home/retorno     subir un nivel (no cierra la app)
  *   Canal − / +      reproducir la carpeta anterior / siguiente
  *   multimedia       play/pausa, anterior/siguiente, adelantar/atrasar
+ *
+ * `press` y `release` llegan al apretar y al soltar; mantener apretado lo
+ * resuelve cada comando con sus propios tiempos.
  */
 export class RemoteControlRouter {
   private readonly bindings: Map<number, RemoteCommand>;
@@ -35,11 +40,17 @@ export class RemoteControlRouter {
     this.bindings = RemoteControlRouter.buildBindings();
   }
 
-  handle(keyCode: number): void {
-    const command = this.bindings.get(keyCode);
-    if (command) {
-      command.execute(this.actions);
-    }
+  press(keyCode: number): void {
+    this.bindings.get(keyCode)?.execute(this.actions);
+  }
+
+  release(keyCode: number): void {
+    this.bindings.get(keyCode)?.release?.(this.actions);
+  }
+
+  /** Corta todo lo que esté en curso (botones mantenidos). */
+  cancelAll(): void {
+    new Set(this.bindings.values()).forEach(command => command.cancel?.());
   }
 
   private static buildBindings(): Map<number, RemoteCommand> {
@@ -52,8 +63,8 @@ export class RemoteControlRouter {
 
     bind([KeyCodes.DPAD_UP], new MoveCursorCommand(-1));
     bind([KeyCodes.DPAD_DOWN], new MoveCursorCommand(1));
-    bind([KeyCodes.DPAD_LEFT], new PlayAdjacentTrackCommand(-1));
-    bind([KeyCodes.DPAD_RIGHT], new PlayAdjacentTrackCommand(1));
+    bind([KeyCodes.DPAD_LEFT], new SkipOrScrubCommand(-1));
+    bind([KeyCodes.DPAD_RIGHT], new SkipOrScrubCommand(1));
     // Todas las teclas de confirmación: la del OK del control es una de ellas.
     bind(
       [
@@ -80,6 +91,7 @@ export class RemoteControlRouter {
     bind([KeyCodes.CHANNEL_DOWN], new PlayFolderOffsetCommand(-1));
     bind([KeyCodes.PAGE_UP], new PageUpCommand());
     bind([KeyCodes.PAGE_DOWN], new PageDownCommand());
+    bind([KeyCodes.BACK], new BackButtonCommand());
 
     return bindings;
   }

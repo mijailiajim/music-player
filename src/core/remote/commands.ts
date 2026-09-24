@@ -1,26 +1,69 @@
+import {HoldDetector} from './HoldDetector';
 import {RemoteActions} from './RemoteActions';
 import {RemoteCommand} from './RemoteCommand';
+import {RepeatWhileHeld} from './RepeatWhileHeld';
+import {CURSOR_REPEAT_MS, HOLD_THRESHOLD_MS} from './timing';
 
-/** Flechas ▲ / ▼: mueven el cursor por la lista (−1 arriba, +1 abajo). */
+/**
+ * Flechas ▲ / ▼: mueven el cursor por la lista (−1 arriba, +1 abajo).
+ * Mantenidas, siguen a 3 por segundo hasta el primero / el último; al soltar
+ * queda seleccionado donde estaba.
+ */
 export class MoveCursorCommand implements RemoteCommand {
+  private readonly repeat = new RepeatWhileHeld(CURSOR_REPEAT_MS);
+
   constructor(private readonly delta: number) {}
+
   execute(actions: RemoteActions): void {
-    actions.moveCursor(this.delta);
+    this.repeat.start(() => actions.moveCursor(this.delta));
+  }
+
+  release(): void {
+    this.repeat.stop();
+  }
+
+  cancel(): void {
+    this.repeat.stop();
   }
 }
 
 /**
- * Flechas ◀ / ▶: resaltan y reproducen la canción anterior (−1) o siguiente
- * (+1) de la lista; en los extremos no hacen nada.
+ * Flechas ◀ / ▶. Un toque resalta y reproduce la canción anterior (−1) o
+ * siguiente (+1) de la lista (en los extremos no hace nada). Mantenidas,
+ * pausan y atrasan / adelantan la canción que suena 20 s por segundo; al
+ * soltar sigue desde el segundo al que llegó.
  */
-export class PlayAdjacentTrackCommand implements RemoteCommand {
+export class SkipOrScrubCommand implements RemoteCommand {
+  private readonly hold = new HoldDetector(HOLD_THRESHOLD_MS);
+
   constructor(private readonly delta: number) {}
+
   execute(actions: RemoteActions): void {
-    actions.playAdjacent(this.delta);
+    // Si se perdió el soltar anterior, se cierra lo que había quedado abierto.
+    if (this.hold.release() === 'hold') {
+      actions.finishScrub();
+    }
+    this.hold.press(() => actions.startScrub(this.delta));
+  }
+
+  release(actions: RemoteActions): void {
+    const result = this.hold.release();
+    if (result === 'tap') {
+      actions.playAdjacent(this.delta);
+    } else if (result === 'hold') {
+      actions.finishScrub();
+    }
+  }
+
+  cancel(): void {
+    this.hold.reset();
   }
 }
 
-/** Botón OK (redondo) del control: reproduce la canción resaltada. */
+/**
+ * Botón OK (redondo) del control: reproduce la canción resaltada; si es la
+ * que ya suena, alterna pausa/play.
+ */
 export class OkButtonCommand implements RemoteCommand {
   execute(actions: RemoteActions): void {
     actions.playSelection();
@@ -37,6 +80,16 @@ export class PlayFolderOffsetCommand implements RemoteCommand {
 
 /** Botón Re Pág (Page ▲) del control: sube un nivel de carpeta. */
 export class PageUpCommand implements RemoteCommand {
+  execute(actions: RemoteActions): void {
+    actions.goUp();
+  }
+}
+
+/**
+ * Botón Home/retorno (BACK) del control: sube un nivel de carpeta, igual que
+ * Re Pág. Ya no cierra la app.
+ */
+export class BackButtonCommand implements RemoteCommand {
   execute(actions: RemoteActions): void {
     actions.goUp();
   }

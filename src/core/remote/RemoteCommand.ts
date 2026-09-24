@@ -6,5 +6,10 @@ import {RemoteActions} from './RemoteActions';
  * pequeñas y bien definidas.
  */
 export interface RemoteCommand {
+  /** Al apretar el botón (las repeticiones automáticas no llegan acá). */
   execute(actions: RemoteActions): void;
+  /** Al soltarlo: solo los botones que hacen algo mientras se mantienen. */
+  release?(actions: RemoteActions): void;
+  /** Corta lo que esté en curso (p. ej. al cerrar la pantalla). */
+  cancel?(): void;
 }

@@ -35,16 +35,15 @@ import java.io.File
  *  - hasStorageAccess / requestStorageAccess: permiso de lectura (All Files
  *    Access en Android 11+, READ_EXTERNAL_STORAGE antes).
  *  - adjustVolume: volumen multimedia del sistema.
+ *  - canAutoOpen / requestAutoOpen: permiso para abrirse sola al conectar el
+ *    pendrive ("Mostrar sobre otras apps" en Android 10+).
  *  - Evento "usbStorageChanged": montaje/expulsión de medios y conexión USB.
- *  - Evento "remoteKey": teclas del control remoto reenviadas por MainActivity.
- *  - Evento "musicVolumeChanged": cambios del volumen multimedia (se muestran
- *    en la línea de señales).
+ *  - Evento "remoteKey": teclas de control remoto reenviadas por MainActivity.
  */
 class UsbAudioModule(private val ctx: ReactApplicationContext) :
     ReactContextBaseJavaModule(ctx) {
 
   private var receiver: BroadcastReceiver? = null
-  private var volumeReceiver: BroadcastReceiver? = null
 
   override fun getName(): String = NAME
 
@@ -75,35 +74,15 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     }
     registerCompat(r, mediaFilter)
     registerCompat(r, usbFilter)
-
-    // En algunos equipos (Android TV) las teclas de volumen nunca llegan a la
-    // app: el sistema las atiende directo. El cambio de volumen sí se puede
-    // escuchar, así esos botones también muestran una señal.
-    val v = object : BroadcastReceiver() {
-      override fun onReceive(context: Context?, intent: Intent?) {
-        if (intent == null ||
-            intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1) != AudioManager.STREAM_MUSIC) {
-          return
-        }
-        val params = Arguments.createMap()
-        params.putInt("volume", intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE, -1))
-        params.putInt("previous", intent.getIntExtra(EXTRA_PREV_VOLUME_STREAM_VALUE, -1))
-        params.putInt("max", maxMusicVolume())
-        emit("musicVolumeChanged", params)
-      }
-    }
-    volumeReceiver = v
-    registerCompat(v, IntentFilter(VOLUME_CHANGED_ACTION))
   }
 
   override fun invalidate() {
-    for (r in listOfNotNull(receiver, volumeReceiver)) {
+    receiver?.let {
       try {
-        ctx.unregisterReceiver(r)
+        ctx.unregisterReceiver(it)
       } catch (_: Exception) {}
     }
     receiver = null
-    volumeReceiver = null
     super.invalidate()
   }
 
@@ -111,7 +90,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       // Solo se esperan broadcasts del sistema; EXPORTED garantiza la entrega
       // en todos los OEM y un broadcast falsificado solo provocaría un
-      // re-escaneo o una señal de volumen en pantalla, ambos inofensivos.
+      // re-escaneo inofensivo.
       ctx.registerReceiver(r, filter, Context.RECEIVER_EXPORTED)
     } else {
       ctx.registerReceiver(r, filter)
@@ -242,13 +221,29 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     }
   }
 
-  private fun maxMusicVolume(): Int =
+  @ReactMethod
+  fun canAutoOpen(promise: Promise) {
+    promise.resolve(UsbAutoOpenReceiver.canOpenFromBackground(ctx))
+  }
+
+  /** Abre el ajuste "Mostrar sobre otras apps"; se re-verifica al volver. */
+  @ReactMethod
+  fun requestAutoOpen() {
+    val settings =
+        Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:" + ctx.packageName))
+    settings.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    try {
+      ctx.startActivity(settings)
+    } catch (_: Exception) {
+      // Algunos equipos (Android Go / TV) no tienen esa pantalla.
+      val details =
+          Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + ctx.packageName))
+      details.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
       try {
-        (ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
-            .getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-      } catch (_: Exception) {
-        -1
-      }
+        ctx.startActivity(details)
+      } catch (_: Exception) {}
+    }
+  }
 
   @ReactMethod
   fun adjustVolume(direction: Int) {
@@ -270,25 +265,23 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     const val NAME = "UsbAudio"
     private const val REQUEST_STORAGE = 4711
 
-    // Broadcast del sistema al cambiar el volumen de un stream (sus constantes
-    // están ocultas en el SDK público).
-    private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
-    private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
-    private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
-    private const val EXTRA_PREV_VOLUME_STREAM_VALUE =
-        "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE"
-
     /**
-     * Botones anulados ("prevent default"): el OK —todas las teclas de
-     * confirmación— y Re Pág/Av Pág. Android convierte una tecla de
-     * confirmación en un clic sobre el botón enfocado de la pantalla (el ⏮,
-     * primero en recibir el foco) ANTES de llamar a onKeyDown, así que la app
-     * nunca la veía. Por eso se capturan en dispatchKeyEvent, antes que la
-     * interfaz y que el sistema: se consumen al bajar y al soltar, y solo se
-     * avisan a JS, donde su función está vacía.
+     * Teclas que se atrapan en MainActivity.dispatchKeyEvent, ANTES que la
+     * interfaz y que el sistema: se consumen al apretar y al soltar, y las dos
+     * cosas se avisan a JS.
+     *  - OK (todas las teclas de confirmación): si no, Android las convierte en
+     *    un clic sobre el botón enfocado de la pantalla (⏮) sin pasar por la app.
+     *  - Flechas: la app necesita saber cuándo se SUELTAN (mantener ▲/▼ recorre
+     *    la lista; mantener ◀/▶ adelanta/atrasa la canción).
+     *  - Re Pág / Av Pág y Home/retorno (BACK): navegan las carpetas. Así BACK
+     *    tampoco cierra la app.
      */
-    private val PREVENTED_KEYS =
+    private val CAPTURED_KEYS =
         setOf(
+            KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN,
+            KeyEvent.KEYCODE_DPAD_LEFT,
+            KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_DPAD_CENTER,
             KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_NUMPAD_ENTER,
@@ -296,15 +289,24 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_BUTTON_SELECT,
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_PAGE_UP,
-            KeyEvent.KEYCODE_PAGE_DOWN)
+            KeyEvent.KEYCODE_PAGE_DOWN,
+            KeyEvent.KEYCODE_BACK)
 
-    /** Resto de teclas del control: se consumen en onKeyDown. */
+    /**
+     * Botones desactivados a propósito: se consumen y no hacen nada. El del
+     * micrófono (búsqueda / asistente de voz) y DEL.
+     */
+    private val DISABLED_KEYS =
+        setOf(
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_VOICE_ASSIST,
+            KeyEvent.KEYCODE_ASSIST,
+            KeyEvent.KEYCODE_DEL,
+            KeyEvent.KEYCODE_FORWARD_DEL)
+
+    /** Resto de teclas del control (multimedia, canal): se usan en onKeyDown. */
     private val REMOTE_KEYS =
         setOf(
-            KeyEvent.KEYCODE_DPAD_UP,
-            KeyEvent.KEYCODE_DPAD_DOWN,
-            KeyEvent.KEYCODE_DPAD_LEFT,
-            KeyEvent.KEYCODE_DPAD_RIGHT,
             KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
@@ -318,28 +320,25 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_CHANNEL_DOWN)
 
     /**
-     * Captura previa, desde MainActivity.dispatchKeyEvent: si es un botón
-     * anulado lo consume (devuelve true, al bajar y al soltar) y, al bajar, lo
-     * avisa a JS para mostrarlo y ejecutar su función (vacía).
+     * Desde MainActivity.dispatchKeyEvent. Devuelve true si la tecla es de las
+     * atrapadas o desactivadas (se consume: ni la pantalla ni el sistema la
+     * reciben).
      */
     fun interceptKey(activity: Activity, event: KeyEvent): Boolean {
-      if (event.keyCode !in PREVENTED_KEYS) return false
-      if (event.action == KeyEvent.ACTION_DOWN) {
-        emitKey(activity, event.keyCode, event)
+      val keyCode = event.keyCode
+      if (keyCode in DISABLED_KEYS) return true
+      if (keyCode !in CAPTURED_KEYS) return false
+      if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) {
+        emitKey(activity, keyCode, event)
       }
       return true
     }
 
-    /**
-     * Reenvía a JS TODAS las teclas del control (con su nombre, p. ej.
-     * "KEYCODE_BACK") para mostrarlas en la línea de señales. Devuelve true
-     * (consume la tecla) SOLO para las teclas de interés; el resto (volumen,
-     * Back, Menú…) se muestra pero sigue su curso normal en el sistema.
-     */
+    /** Desde MainActivity.onKeyDown; true si la tecla fue consumida. */
     fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean =
-        emitKey(activity, keyCode, event) && keyCode in REMOTE_KEYS
+        keyCode in REMOTE_KEYS && emitKey(activity, keyCode, event)
 
-    /** Emite el evento "remoteKey" a JS; false si React todavía no está listo. */
+    /** Emite "remoteKey" a JS (apretar o soltar); false si React no está listo. */
     private fun emitKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
@@ -347,7 +346,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
       val params = Arguments.createMap()
       params.putInt("keyCode", keyCode)
       params.putInt("repeatCount", event?.repeatCount ?: 0)
-      params.putString("keyName", KeyEvent.keyCodeToString(keyCode))
+      params.putString("action", if (event?.action == KeyEvent.ACTION_UP) "up" else "down")
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)

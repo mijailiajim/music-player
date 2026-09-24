@@ -5,6 +5,7 @@
  */
 import {TrackPlayerAudioPlayer} from './adapters/TrackPlayerAudioPlayer';
 import {PlaybackController} from './core/playback/PlaybackController';
+import {PlaybackScrubber} from './core/playback/PlaybackScrubber';
 import {QueueFactory} from './core/playback/QueueFactory';
 
 export const audioPlayer = new TrackPlayerAudioPlayer();
@@ -13,3 +14,6 @@ export const playbackController = new PlaybackController(
   audioPlayer,
   new QueueFactory(),
 );
+
+/** Adelantar / atrasar mientras se mantiene ◀ / ▶ (mismo motor). */
+export const playbackScrubber = new PlaybackScrubber(audioPlayer);

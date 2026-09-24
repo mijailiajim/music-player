@@ -14,17 +14,21 @@
  *    a la carpeta resaltada. Se ven TODAS las carpetas (tengan o no música) y
  *    adentro solo las canciones reproducibles.
  *  - ▲/▼ mueven el cursor y ◀/▶ reproducen la canción anterior/siguiente; en
- *    los extremos no dan la vuelta.
+ *    los extremos no dan la vuelta. Mantenidas: ▲/▼ recorren la lista a 3 por
+ *    segundo y ◀/▶ pausan y atrasan/adelantan la canción 20 s por segundo.
+ *  - OK sobre la canción que ya suena alterna pausa/play. Home/retorno (BACK)
+ *    sube un nivel, como Re Pág.
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import {DeviceEventEmitter, Platform, Text} from 'react-native';
-import SignalBar from '../src/components/SignalBar';
+import {DeviceEventEmitter, Platform} from 'react-native';
+import AutoOpenBanner from '../src/components/AutoOpenBanner';
 import {
   OkButtonCommand,
   PageDownCommand,
   PageUpCommand,
 } from '../src/core/remote/commands';
+import {HOLD_THRESHOLD_MS} from '../src/core/remote/timing';
 import {KeyCodes} from '../src/keymap';
 import {ROOT_FOLDER_NAME} from '../src/library';
 
@@ -149,13 +153,18 @@ jest.mock('../src/native/UsbAudio', () => ({
     listDir: (p: string) => Promise.resolve(mockFs[p] ?? []),
     hasStorageAccess: () => Promise.resolve(true),
     requestStorageAccess: () => Promise.resolve(true),
+    canAutoOpen: () => Promise.resolve(mockCanAutoOpen),
+    requestAutoOpen: jest.fn(),
     volumeUp: jest.fn(),
     volumeDown: jest.fn(),
   },
   pickUsbVolume: (vols: Array<{path: string}>) => vols[0],
 }));
+/** ¿Ya tiene el permiso para abrirse sola al conectar el pendrive? */
+let mockCanAutoOpen = true;
 
 const mockUsb = jest.requireMock('../src/native/UsbAudio').UsbAudio as {
+  requestAutoOpen: jest.Mock;
   volumeUp: jest.Mock;
   volumeDown: jest.Mock;
 };
@@ -215,9 +224,43 @@ async function flush() {
   });
 }
 
-function emitKey(keyCode: number) {
+/** Apretar una tecla (`repeatCount` > 0: repetición de Android al mantenerla). */
+function keyDown(keyCode: number, repeatCount = 0) {
   act(() => {
-    DeviceEventEmitter.emit('remoteKey', {keyCode, repeatCount: 0});
+    DeviceEventEmitter.emit('remoteKey', {
+      keyCode,
+      repeatCount,
+      action: 'down',
+    });
+  });
+}
+
+function keyUp(keyCode: number) {
+  act(() => {
+    DeviceEventEmitter.emit('remoteKey', {
+      keyCode,
+      repeatCount: 0,
+      action: 'up',
+    });
+  });
+}
+
+/** Un toque: apretar y soltar. */
+function emitKey(keyCode: number) {
+  keyDown(keyCode);
+  keyUp(keyCode);
+}
+
+/** Reloj simulado para los botones mantenidos (`flush` sigue con el real). */
+function useFakeClock() {
+  jest.useFakeTimers({
+    doNotFake: ['nextTick', 'queueMicrotask', 'setImmediate'],
+  });
+}
+
+function advance(ms: number) {
+  act(() => {
+    jest.advanceTimersByTime(ms);
   });
 }
 
@@ -250,15 +293,6 @@ function listed(): string[] {
   );
 }
 
-/** Texto de la línea de señales (abajo de todo). */
-function signalText(): string {
-  return root!.root
-    .findByType(SignalBar)
-    .findAllByType(Text)
-    .map(t => ([] as unknown[]).concat(t.props.children).join(''))
-    .join(' ');
-}
-
 async function mountAndLoad() {
   await act(async () => {
     root = TestRenderer.create(React.createElement(App));
@@ -275,6 +309,7 @@ afterEach(() => {
     act(() => root!.unmount());
     root = null;
   }
+  jest.useRealTimers();
 });
 
 describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', () => {
@@ -324,13 +359,11 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
       await flush();
       expect(mockCaptured.folderList.selectedIndex).toBe(7);
 
-      // OK: se captura (se ve en la línea de señales) y reproduce la
-      // seleccionada (la 8ª, índice 7), no la anterior.
+      // OK (ENTER): reproduce la seleccionada (la 8ª, índice 7), no la anterior.
       clearPlayerCalls();
       emitKey(KeyCodes.ENTER);
       await flush();
       expect(okSpy).toHaveBeenCalledTimes(1);
-      expect(signalText()).toContain('ENTER(66)');
       expect(mockPlayer.skip).toHaveBeenCalledWith(7);
       expect(mockPlayer.play).toHaveBeenCalled();
       expect(mockPlayer.skipToPrevious).not.toHaveBeenCalled();
@@ -363,7 +396,6 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
       emitKey(KeyCodes.PAGE_UP);
       await flush();
       expect(upSpy).toHaveBeenCalledTimes(1);
-      expect(signalText()).toContain('PAGE_UP(92)');
       const list = mockCaptured.folderList;
       expect(list.title).toBe(ROOT_FOLDER_NAME);
       expect(listed()).toEqual(['📁 Fotos', '📁 Musica', '📁 Videos']);
@@ -382,7 +414,6 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
       emitKey(KeyCodes.PAGE_DOWN);
       await flush();
       expect(downSpy).toHaveBeenCalledTimes(1);
-      expect(signalText()).toContain('PAGE_DOWN(93)');
       expect(mockCaptured.folderList.title).toBe('Musica');
       expect(mockCaptured.folderList.items).toHaveLength(36);
       expect(mockCaptured.folderList.selectedIndex).toBe(0);
@@ -459,6 +490,168 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     }
     await flush();
     expect(mockCaptured.folderList.selectedIndex).toBe(35);
+  });
+
+  it('OK sobre la canción que ya suena alterna pausa / play', async () => {
+    await mountAndLoad();
+    const added = mockPlayer.add.mock.calls[0][0];
+    act(() => {
+      tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[0]});
+    });
+    await flush();
+    expect(mockCaptured.folderList.selectedIndex).toBe(0); // la que suena
+    clearPlayerCalls();
+
+    mockPlayer.getPlaybackState.mockResolvedValueOnce({state: 'playing'});
+    emitKey(KeyCodes.ENTER);
+    await flush();
+    expect(mockPlayer.pause).toHaveBeenCalledTimes(1);
+
+    mockPlayer.getPlaybackState.mockResolvedValueOnce({state: 'paused'});
+    emitKey(KeyCodes.ENTER);
+    await flush();
+    expect(mockPlayer.play).toHaveBeenCalledTimes(1);
+    // No la vuelve a cargar.
+    expect(mockPlayer.skip).not.toHaveBeenCalled();
+  });
+
+  it('mantener OK apretado no repite la acción', async () => {
+    await mountAndLoad();
+    emitKey(KeyCodes.DPAD_DOWN); // otra canción, no la que suena
+    clearPlayerCalls();
+    keyDown(KeyCodes.ENTER);
+    for (let repeat = 1; repeat <= 5; repeat++) {
+      keyDown(KeyCodes.ENTER, repeat);
+    }
+    keyUp(KeyCodes.ENTER);
+    await flush();
+    expect(mockPlayer.skip).toHaveBeenCalledTimes(1);
+    expect(mockPlayer.skip).toHaveBeenCalledWith(1);
+  });
+
+  it('▼ mantenida baja 3 canciones por segundo; al soltar se queda ahí', async () => {
+    useFakeClock();
+    await mountAndLoad();
+    keyDown(KeyCodes.DPAD_DOWN);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
+    // Las repeticiones automáticas de Android no aceleran nada.
+    keyDown(KeyCodes.DPAD_DOWN, 1);
+    keyDown(KeyCodes.DPAD_DOWN, 2);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
+
+    advance(1000);
+    expect(mockCaptured.folderList.selectedIndex).toBe(4);
+    advance(1000);
+    expect(mockCaptured.folderList.selectedIndex).toBe(7);
+
+    keyUp(KeyCodes.DPAD_DOWN);
+    advance(3000);
+    expect(mockCaptured.folderList.selectedIndex).toBe(7);
+  });
+
+  it('▲ mantenida sube 3 por segundo y se detiene en la primera', async () => {
+    useFakeClock();
+    await mountAndLoad();
+    for (let i = 0; i < 5; i++) {
+      emitKey(KeyCodes.DPAD_DOWN);
+    }
+    expect(mockCaptured.folderList.selectedIndex).toBe(5);
+
+    keyDown(KeyCodes.DPAD_UP);
+    advance(1000);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1);
+    advance(5000);
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
+    keyUp(KeyCodes.DPAD_UP);
+  });
+
+  it('▶ mantenida pausa y adelanta 20 s por segundo; al soltar sigue desde ahí', async () => {
+    useFakeClock();
+    await mountAndLoad();
+    const added = mockPlayer.add.mock.calls[0][0];
+    act(() => {
+      tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[0]});
+    });
+    await flush();
+    clearPlayerCalls();
+    mockPlayer.getProgress.mockResolvedValueOnce({position: 30, duration: 200});
+
+    keyDown(KeyCodes.DPAD_RIGHT);
+    advance(HOLD_THRESHOLD_MS);
+    await flush();
+    expect(mockPlayer.pause).toHaveBeenCalledTimes(1);
+    const scrubber = mockCaptured.nowPlaying.scrubber;
+    expect(scrubber.getSnapshot()).toMatchObject({position: 30, holding: true});
+
+    advance(1000);
+    expect(scrubber.getSnapshot().position).toBe(50);
+    advance(1000);
+    expect(scrubber.getSnapshot().position).toBe(70);
+
+    keyUp(KeyCodes.DPAD_RIGHT);
+    await flush();
+    expect(mockPlayer.seekTo).toHaveBeenCalledWith(70);
+    expect(mockPlayer.play).toHaveBeenCalledTimes(1);
+    // Mantener no es un toque: no pasa a la canción siguiente.
+    expect(mockPlayer.skip).not.toHaveBeenCalled();
+  });
+
+  it('◀ mantenida atrasa 20 s por segundo sin bajar del principio', async () => {
+    useFakeClock();
+    await mountAndLoad();
+    const added = mockPlayer.add.mock.calls[0][0];
+    act(() => {
+      tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[0]});
+    });
+    await flush();
+    clearPlayerCalls();
+    mockPlayer.getProgress.mockResolvedValueOnce({position: 30, duration: 200});
+
+    keyDown(KeyCodes.DPAD_LEFT);
+    advance(HOLD_THRESHOLD_MS);
+    await flush();
+    advance(1000);
+    expect(mockCaptured.nowPlaying.scrubber.getSnapshot().position).toBe(10);
+    advance(2000);
+    expect(mockCaptured.nowPlaying.scrubber.getSnapshot().position).toBe(0);
+
+    keyUp(KeyCodes.DPAD_LEFT);
+    await flush();
+    expect(mockPlayer.seekTo).toHaveBeenCalledWith(0);
+    expect(mockPlayer.play).toHaveBeenCalledTimes(1);
+  });
+
+  it('Home/retorno (BACK) sube un nivel y en la raíz no hace nada (no cierra la app)', async () => {
+    await mountAndLoad();
+    clearPlayerCalls();
+    emitKey(KeyCodes.BACK);
+    await flush();
+    expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+    expect(mockCaptured.folderList.selectedIndex).toBe(1); // "Musica"
+
+    emitKey(KeyCodes.BACK);
+    await flush();
+    expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+    expectNoPlayerCalls();
+  });
+
+  it('si falta el permiso para abrirse sola, avisa y PERMITIR abre el ajuste', async () => {
+    mockCanAutoOpen = false;
+    try {
+      await mountAndLoad();
+      await flush();
+      const banner = root!.root.findByType(AutoOpenBanner);
+      act(() => banner.props.onAllow());
+      expect(mockUsb.requestAutoOpen).toHaveBeenCalledTimes(1);
+    } finally {
+      mockCanAutoOpen = true;
+    }
+  });
+
+  it('con el permiso para abrirse sola no se muestra el aviso', async () => {
+    await mountAndLoad();
+    await flush();
+    expect(root!.root.findAllByType(AutoOpenBanner)).toHaveLength(0);
   });
 
   it('los botones de volumen en pantalla ajustan el volumen del sistema', async () => {

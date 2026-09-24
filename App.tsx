@@ -21,30 +21,27 @@ import {
   usePlaybackState,
   useTrackPlayerEvents,
 } from 'react-native-track-player';
-import {TrackPlayerSignalTranslator} from './src/adapters/TrackPlayerSignalTranslator';
 import {UsbMonitor} from './src/adapters/UsbMonitor';
+import AutoOpenBanner from './src/components/AutoOpenBanner';
 import Controls from './src/components/Controls';
 import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
-import SignalBar from './src/components/SignalBar';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
 import {BrowseState, FolderBrowser} from './src/core/browser/FolderBrowser';
 import {MusicLibrary} from './src/core/library/MusicLibrary';
 import {RemoteActions} from './src/core/remote/RemoteActions';
 import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
-import {KeyNameResolver} from './src/core/signals/KeyNameResolver';
-import {SignalFactory} from './src/core/signals/SignalFactory';
-import {SignalFeed} from './src/core/signals/SignalFeed';
 import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
 import {RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanLibrary, totalTracks, TrackInfo} from './src/library';
-import {MusicVolumeEvent, UsbAudio} from './src/native/UsbAudio';
+import {UsbAudio} from './src/native/UsbAudio';
 import {
   clearQueue,
   isPlayingState,
   loadQueue,
   pause,
   play,
+  playbackScrubber,
   playTrackAt,
   QueueTrack,
   seekBy,
@@ -70,6 +67,8 @@ const USB_DEBOUNCE_MS = 900;
 
 export default function App() {
   const [hasPermission, setHasPermission] = useState(false);
+  /** La app puede abrirse sola al conectar el pendrive (null: sin saber). */
+  const [canAutoOpen, setCanAutoOpen] = useState<boolean | null>(null);
   const [status, setStatus] = useState<UsbStatus>('esperando-usb');
   const [groups, setGroups] = useState<FolderGroup[]>([]);
   const [volumeDesc, setVolumeDesc] = useState('');
@@ -80,18 +79,6 @@ export default function App() {
 
   // Colaboradores del núcleo (sin estado propio: seguros de compartir).
   const volumeSelector = useMemo(() => new RemovableVolumeSelector(), []);
-
-  // Línea de señales: lo que llega al apretar cada botón del control. Solo se
-  // muestra; no cambia lo que hace la app.
-  const signalFeed = useMemo(() => new SignalFeed(), []);
-  const signalFactory = useMemo(
-    () => new SignalFactory(new KeyNameResolver()),
-    [],
-  );
-  const playerSignals = useMemo(
-    () => new TrackPlayerSignalTranslator(signalFactory),
-    [signalFactory],
-  );
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
@@ -128,9 +115,13 @@ export default function App() {
     () => ({
       moveCursor: delta => {
         const b = browserRef.current;
-        if (b) {
-          updateBrowse(b.moveCursor(browseRef.current, delta));
+        if (!b) {
+          return false;
         }
+        const before = browseRef.current;
+        const next = b.moveCursor(before, delta);
+        updateBrowse(next);
+        return next !== before;
       },
       playAdjacent: delta => {
         const next = browserRef.current?.adjacentTrack(
@@ -144,9 +135,22 @@ export default function App() {
       },
       playSelection: () => {
         const item = browserRef.current?.selected(browseRef.current);
-        if (item?.kind === 'track') {
+        if (item?.kind !== 'track') {
+          return;
+        }
+        if (item.track.path === activeTrackRef.current?.id) {
+          togglePlayPause(); // es la que ya suena: pausa / play
+        } else {
           playTrack(item.track);
         }
+      },
+      startScrub: direction => {
+        if (activeTrackRef.current) {
+          playbackScrubber.start(direction);
+        }
+      },
+      finishScrub: () => {
+        playbackScrubber.finish();
       },
       goUp: () => {
         const b = browserRef.current;
@@ -284,6 +288,9 @@ export default function App() {
     if (granted) {
       refreshVolumes();
     }
+    try {
+      setCanAutoOpen(await UsbAudio.canAutoOpen());
+    } catch {}
   }, [refreshVolumes]);
 
   const requestPermission = useCallback(async () => {
@@ -296,33 +303,23 @@ export default function App() {
     // En Android 11+ se abre Ajustes y el permiso se re-verifica al volver.
   }, [refreshVolumes]);
 
-  useTrackPlayerEvents(
-    [Event.PlaybackActiveTrackChanged, ...playerSignals.events],
-    event => {
-      // Estado del reproductor y comandos de la sesión de medios: solo se
-      // muestran en la línea de señales.
-      const signal = playerSignals.translate(event);
-      if (signal != null) {
-        signalFeed.record(signal);
-        return;
+  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], event => {
+    if (event.type !== Event.PlaybackActiveTrackChanged) {
+      return;
+    }
+    const track = event.track as QueueTrack | undefined;
+    activeTrackRef.current = track;
+    setActiveTrack(track);
+    if (
+      typeof track?.id === 'string' &&
+      Date.now() - lastNavRef.current > NAV_IDLE_MS
+    ) {
+      const next = browserRef.current?.reveal(track.id);
+      if (next) {
+        showBrowse(next);
       }
-      if (event.type !== Event.PlaybackActiveTrackChanged) {
-        return;
-      }
-      const track = event.track as QueueTrack | undefined;
-      activeTrackRef.current = track;
-      setActiveTrack(track);
-      if (
-        typeof track?.id === 'string' &&
-        Date.now() - lastNavRef.current > NAV_IDLE_MS
-      ) {
-        const next = browserRef.current?.reveal(track.id);
-        if (next) {
-          showBrowse(next);
-        }
-      }
-    },
-  );
+    }
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -350,16 +347,14 @@ export default function App() {
     const keySub = DeviceEventEmitter.addListener(
       'remoteKey',
       (event: RemoteKeyEvent) => {
-        signalFeed.record(
-          signalFactory.key(event.keyCode, event.repeatCount, event.keyName),
-        );
-        remoteRouter.handle(event.keyCode);
+        if (event.action === 'up') {
+          remoteRouter.release(event.keyCode);
+        } else if (!event.repeatCount) {
+          // Mantener apretado lo resuelve cada botón con sus tiempos; las
+          // repeticiones automáticas de Android no repiten la acción.
+          remoteRouter.press(event.keyCode);
+        }
       },
-    );
-    const volumeSub = DeviceEventEmitter.addListener(
-      'musicVolumeChanged',
-      (event: MusicVolumeEvent) =>
-        signalFeed.record(signalFactory.volume(event.volume, event.max)),
     );
     const appSub = AppState.addEventListener('change', state => {
       if (state === 'active') {
@@ -370,17 +365,12 @@ export default function App() {
     return () => {
       cancelled = true;
       stopUsbMonitor();
+      remoteRouter.cancelAll();
+      playbackScrubber.cancel();
       keySub.remove();
-      volumeSub.remove();
       appSub.remove();
     };
-  }, [
-    recheckPermission,
-    refreshVolumes,
-    remoteRouter,
-    signalFactory,
-    signalFeed,
-  ]);
+  }, [recheckPermission, refreshVolumes, remoteRouter]);
 
   const statusKind: StatusKind | null =
     Platform.OS !== 'android'
@@ -395,6 +385,9 @@ export default function App() {
     <SafeAreaProvider>
       <SafeAreaView style={styles.root}>
         <StatusBar barStyle="light-content" backgroundColor={colors.bg} />
+        {hasPermission && canAutoOpen === false && (
+          <AutoOpenBanner onAllow={UsbAudio.requestAutoOpen} />
+        )}
         {statusKind != null ? (
           <StatusScreen
             kind={statusKind}
@@ -420,7 +413,6 @@ export default function App() {
             onVolumeUp={UsbAudio.volumeUp}
           />
         )}
-        <SignalBar feed={signalFeed} />
       </SafeAreaView>
     </SafeAreaProvider>
   );
@@ -473,6 +465,7 @@ function PlayerScreen({
       playing={playing}
       folderTrackCount={folderTrackCount}
       landscape={landscape}
+      scrubber={playbackScrubber}
     />
   );
   const controlButtons = (

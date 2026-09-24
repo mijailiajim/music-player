@@ -5,7 +5,7 @@
  * ya usaba la app (y los tests).
  */
 import {State, Track} from 'react-native-track-player';
-import {playbackController} from './composition';
+import {playbackController, playbackScrubber} from './composition';
 import {FolderGroup} from './core/model';
 import {SEEK_STEP_SECONDS} from './core/playback/constants';
 
@@ -16,6 +16,9 @@ export interface QueueTrack extends Track {
 }
 
 export {SEEK_STEP_SECONDS};
+
+/** Adelantar / atrasar mientras se mantiene ◀ / ▶ (observable para la UI). */
+export {playbackScrubber};
 
 export function setupPlayerOnce(): Promise<void> {
   return playbackController.setupOnce();

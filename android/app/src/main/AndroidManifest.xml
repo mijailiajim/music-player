@@ -16,6 +16,9 @@
     <uses-permission
         android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
+    <!-- Android 10+: "Mostrar sobre otras apps" es lo que permite que la app
+         se abra sola (desde segundo plano) al conectar el pendrive. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
 
     <uses-feature
         android:name="android.hardware.usb.host"
@@ -42,16 +45,18 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
         </intent-filter>
-        <!-- Autoarranque: al conectar un dispositivo USB (pendrive por OTG)
-             Android ofrece abrir esta app; si el usuario marca "usar por
-             defecto", se abre sola cada vez. -->
+      </activity>
+
+      <!-- Autoarranque SIN preguntar: al conectar un pendrive este receptor
+           abre la app. (La actividad ya no declara USB_DEVICE_ATTACHED: eso es
+           lo que hacía que Android preguntara "¿Abrir con…?"). -->
+      <receiver
+        android:name=".usb.UsbAutoOpenReceiver"
+        android:exported="true">
         <intent-filter>
             <action android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED" />
         </intent-filter>
-        <meta-data
-            android:name="android.hardware.usb.action.USB_DEVICE_ATTACHED"
-            android:resource="@xml/device_filter" />
-      </activity>
+      </receiver>
 
       <service
         android:name="com.doublesymmetry.trackplayer.service.MusicService"

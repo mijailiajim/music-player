@@ -1,6 +1,7 @@
-import React from 'react';
+import React, {useSyncExternalStore} from 'react';
 import {StyleSheet, Text, View} from 'react-native';
 import {useProgress} from 'react-native-track-player';
+import type {PlaybackScrubber} from '../core/playback/PlaybackScrubber';
 import {formatTime, QueueTrack} from '../player';
 import {colors, fonts} from '../theme';
 
@@ -9,6 +10,8 @@ interface Props {
   playing: boolean;
   folderTrackCount: number;
   landscape: boolean;
+  /** Mientras se mantiene ◀ / ▶ se muestra la posición a la que se llega. */
+  scrubber: PlaybackScrubber;
 }
 
 export default function NowPlaying({
@@ -16,15 +19,31 @@ export default function NowPlaying({
   playing,
   folderTrackCount,
   landscape,
+  scrubber,
 }: Props) {
-  const {position, duration} = useProgress(500);
+  const progress = useProgress(500);
+  const scrub = useSyncExternalStore(scrubber.subscribe, scrubber.getSnapshot);
+  const position = scrub?.position ?? progress.position;
+  const duration = progress.duration;
   const pct =
     duration > 0 ? Math.min(100, Math.max(0, (position / duration) * 100)) : 0;
 
+  const status = scrub?.holding
+    ? scrub.direction > 0
+      ? '⏩ ADELANTANDO'
+      : '⏪ RETROCEDIENDO'
+    : playing
+    ? '▶ REPRODUCIENDO'
+    : '⏸ EN PAUSA';
+
   return (
     <View style={styles.container}>
-      <Text style={[styles.status, playing ? styles.playing : styles.paused]}>
-        {playing ? '▶ REPRODUCIENDO' : '⏸ EN PAUSA'}
+      <Text
+        style={[
+          styles.status,
+          playing && !scrub?.holding ? styles.playing : styles.paused,
+        ]}>
+        {status}
       </Text>
       <Text
         style={[styles.title, landscape && styles.titleLandscape]}

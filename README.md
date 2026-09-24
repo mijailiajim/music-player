@@ -16,7 +16,7 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 
 ## Qué hace
 
-- **Arranque automático**: al conectar un pendrive, Android ofrece abrir "Música USB" (si marcas *"Usar de forma predeterminada"*, se abre sola cada vez). Ya abierta, detecta el montaje del pendrive, lo escanea y **reproduce inmediatamente**.
+- **Arranque automático**: al conectar un pendrive la app **se abre sola, sin preguntar** (en Android 10+ necesita, una sola vez, el permiso *"Mostrar sobre otras apps"*: la app lo pide con un aviso y un botón PERMITIR). Ya abierta, detecta el montaje del pendrive, lo escanea y **reproduce inmediatamente**.
 - **Orden de reproducción**:
   1. Si hay archivos de audio **en la raíz** del pendrive, suenan primero, en **orden alfabético** por nombre de archivo (números en orden natural: `2 - tema` antes que `10 - tema`).
   2. Después siguen las **carpetas en orden alfabético**; dentro de cada carpeta, los archivos también en orden alfabético. Las subcarpetas se recorren en profundidad, justo después de su carpeta madre, también alfabéticamente.
@@ -26,7 +26,6 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 - **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
 - **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para reproducir lo seleccionado, play/pausa, adelantar/atrasar 10 s y volumen (ver mapa de teclas abajo).
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
-- **Línea de señales** (abajo de todo): muestra lo que le llega a la app al apretar cada botón del control, con la hora: la tecla con su código (`DPAD_DOWN(20)`, `BACK(4)`, `MENU(82)`…), los cambios de estado del reproductor (`buffering`, `ready`, `playing`, `paused`), los comandos de la sesión de medios (`remote-…`) y el volumen (`volumen 8/15`). Si un botón manda varias señales se muestran todas en orden (p. ej. `buffering → ready → playing`), y si se repite la misma se cuenta con `×N`.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
 - Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
 
@@ -53,11 +52,13 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 
 | Tecla del control | Acción en la app |
 |---|---|
-| ▲ / ▼ (D-pad) | Mover la selección por la lista (en los extremos no da la vuelta) |
-| ◀ / ▶ (D-pad) | Seleccionar y reproducir la canción anterior / siguiente de la lista (en los extremos no hace nada) |
-| OK / Enter | Reproducir la canción seleccionada (sobre una carpeta no hace nada) |
+| ▲ / ▼ (D-pad) | Mover la selección por la lista. Mantenida: 3 canciones por segundo hasta la primera / la última; al soltar queda donde estaba |
+| ◀ / ▶ (D-pad) | Un toque: seleccionar y reproducir la canción anterior / siguiente de la lista (en los extremos no hace nada). Mantenida: pausa y atrasa / adelanta la canción 20 s por segundo; al soltar sigue sonando desde ahí |
+| OK / Enter | Reproducir la canción seleccionada; si es la que ya suena, pausa / play (sobre una carpeta no hace nada) |
 | Re Pág (Page ▲) | Subir un nivel de carpeta |
 | Av Pág (Page ▼) | Entrar a la carpeta seleccionada |
+| Home / retorno | Subir un nivel de carpeta (ya no cierra la app) |
+| Micrófono, DEL | Desactivados: no hacen nada |
 | Play/Pausa | Alternar reproducción |
 | ⏮ / ⏭ | Tema anterior / siguiente |
 | ⏪ / ⏩ | Atrasar / adelantar 10 segundos |
@@ -87,15 +88,15 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 
 1. Abrí la app: va a pedir el **permiso de archivos** ("Acceso a todos los archivos" en Android 11+, permiso de almacenamiento en versiones anteriores). Es necesario para leer el pendrive por ruta directa (`/storage/XXXX-XXXX`). En Android 13+ también pide permiso de notificaciones (controles en la pantalla de bloqueo).
 2. Conectá el pendrive con un **adaptador OTG** (USB-C o micro-USB según el celular).
-3. Cuando Android pregunte con qué app abrir el dispositivo USB, elegí *Música USB* y marcá *"Usar de forma predeterminada"* para el arranque automático.
+3. Tocá **PERMITIR** en el aviso de arriba y activá *"Mostrar sobre otras apps"* para *Música USB* (Android 10+): así la app se abre sola al conectar el pendrive, sin preguntar.
 4. La música empieza sola. 🎶
 
 ## Solución de problemas
 
 - **No detecta el pendrive**: verificá que el celular soporte OTG y que esté activado (en algunos equipos: Ajustes → Sistema → OTG). Formateá el pendrive en **FAT32 o exFAT**; NTFS no está soportado por la mayoría de los Android.
-- **No arranca sola al enchufar**: la primera vez hay que aceptar el diálogo de Android y marcar "usar de forma predeterminada". Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
+- **No arranca sola al enchufar**: verificá el permiso *"Mostrar sobre otras apps"* (Ajustes → Apps → Música USB); en algunos equipos (p. ej. Xiaomi) también hace falta *"Mostrar ventanas emergentes mientras se ejecuta en segundo plano"*. Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
-- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession). Mirá la **línea de señales** de abajo: si al apretar un botón no aparece nada, esa señal no le llega a la app.
+- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
 
 ## Estructura del código
 

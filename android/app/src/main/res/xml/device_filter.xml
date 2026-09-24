@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<resources>
-    <!-- Sin atributos coincide con cualquier dispositivo USB conectado por
-         OTG (los pendrives son clase 8, pero muchos son dispositivos
-         compuestos y un filtro estricto los dejaría afuera). -->
-    <usb-device />
-</resources>
