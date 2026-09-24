@@ -25,6 +25,7 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
 - **Control remoto Bluetooth**: navegación por la lista y entre carpetas con flechas + OK, play/pausa, tema anterior/siguiente, adelantar/atrasar 10 s y volumen (ver mapa de teclas abajo).
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
+- **Línea de señales** (abajo de todo): muestra lo que le llega a la app al apretar cada botón del control, con la hora: la tecla con su código (`DPAD_DOWN(20)`, `BACK(4)`, `MENU(82)`…), los cambios de estado del reproductor (`buffering`, `ready`, `playing`, `paused`), los comandos de la sesión de medios (`remote-…`) y el volumen (`volumen 8/15`). Si un botón manda varias señales se muestran todas en orden (p. ej. `buffering → ready → playing`), y si se repite la misma se cuenta con `×N`.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
 - Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
 
@@ -91,7 +92,7 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 - **No detecta el pendrive**: verificá que el celular soporte OTG y que esté activado (en algunos equipos: Ajustes → Sistema → OTG). Formateá el pendrive en **FAT32 o exFAT**; NTFS no está soportado por la mayoría de los Android.
 - **No arranca sola al enchufar**: la primera vez hay que aceptar el diálogo de Android y marcar "usar de forma predeterminada". Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
-- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
+- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession). Mirá la **línea de señales** de abajo: si al apretar un botón no aparece nada, esa señal no le llega a la app.
 
 ## Estructura del código
 

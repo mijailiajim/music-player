@@ -21,19 +21,24 @@ import {
   usePlaybackState,
   useTrackPlayerEvents,
 } from 'react-native-track-player';
+import {TrackPlayerSignalTranslator} from './src/adapters/TrackPlayerSignalTranslator';
 import {UsbMonitor} from './src/adapters/UsbMonitor';
 import Controls from './src/components/Controls';
 import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
+import SignalBar from './src/components/SignalBar';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
 import {Selection} from './src/core/model';
 import {RemoteActions} from './src/core/remote/RemoteActions';
 import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
 import {SelectionModel} from './src/core/selection/SelectionModel';
+import {KeyNameResolver} from './src/core/signals/KeyNameResolver';
+import {SignalFactory} from './src/core/signals/SignalFactory';
+import {SignalFeed} from './src/core/signals/SignalFeed';
 import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
 import {RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanVolume, totalTracks} from './src/library';
-import {UsbAudio} from './src/native/UsbAudio';
+import {MusicVolumeEvent, UsbAudio} from './src/native/UsbAudio';
 import {
   clearQueue,
   isPlayingState,
@@ -77,6 +82,18 @@ export default function App() {
   // Colaboradores del núcleo (sin estado propio: seguros de compartir).
   const selectionModel = useMemo(() => new SelectionModel(), []);
   const volumeSelector = useMemo(() => new RemovableVolumeSelector(), []);
+
+  // Línea de señales: lo que llega al apretar cada botón del control. Solo se
+  // muestra; no cambia lo que hace la app.
+  const signalFeed = useMemo(() => new SignalFeed(), []);
+  const signalFactory = useMemo(
+    () => new SignalFactory(new KeyNameResolver()),
+    [],
+  );
+  const playerSignals = useMemo(
+    () => new TrackPlayerSignalTranslator(signalFactory),
+    [signalFactory],
+  );
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
@@ -238,22 +255,32 @@ export default function App() {
     // En Android 11+ se abre Ajustes y el permiso se re-verifica al volver.
   }, [refreshVolumes]);
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], event => {
-    if (event.type !== Event.PlaybackActiveTrackChanged) {
-      return;
-    }
-    const track = event.track as QueueTrack | undefined;
-    activeTrackRef.current = track;
-    setActiveTrack(track);
-    if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
-      const next = selectionModel.fromActiveTrack(
-        track.folderIndex ?? 0,
-        track.indexInFolder ?? 0,
-      );
-      selectionRef.current = next;
-      setSelection(next);
-    }
-  });
+  useTrackPlayerEvents(
+    [Event.PlaybackActiveTrackChanged, ...playerSignals.events],
+    event => {
+      // Estado del reproductor y comandos de la sesión de medios: solo se
+      // muestran en la línea de señales.
+      const signal = playerSignals.translate(event);
+      if (signal != null) {
+        signalFeed.record(signal);
+        return;
+      }
+      if (event.type !== Event.PlaybackActiveTrackChanged) {
+        return;
+      }
+      const track = event.track as QueueTrack | undefined;
+      activeTrackRef.current = track;
+      setActiveTrack(track);
+      if (track != null && Date.now() - lastNavRef.current > NAV_IDLE_MS) {
+        const next = selectionModel.fromActiveTrack(
+          track.folderIndex ?? 0,
+          track.indexInFolder ?? 0,
+        );
+        selectionRef.current = next;
+        setSelection(next);
+      }
+    },
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -280,7 +307,17 @@ export default function App() {
     ).start();
     const keySub = DeviceEventEmitter.addListener(
       'remoteKey',
-      (event: RemoteKeyEvent) => remoteRouter.handle(event.keyCode),
+      (event: RemoteKeyEvent) => {
+        signalFeed.record(
+          signalFactory.key(event.keyCode, event.repeatCount, event.keyName),
+        );
+        remoteRouter.handle(event.keyCode);
+      },
+    );
+    const volumeSub = DeviceEventEmitter.addListener(
+      'musicVolumeChanged',
+      (event: MusicVolumeEvent) =>
+        signalFeed.record(signalFactory.volume(event.volume, event.max)),
     );
     const appSub = AppState.addEventListener('change', state => {
       if (state === 'active') {
@@ -292,9 +329,16 @@ export default function App() {
       cancelled = true;
       stopUsbMonitor();
       keySub.remove();
+      volumeSub.remove();
       appSub.remove();
     };
-  }, [recheckPermission, refreshVolumes, remoteRouter]);
+  }, [
+    recheckPermission,
+    refreshVolumes,
+    remoteRouter,
+    signalFactory,
+    signalFeed,
+  ]);
 
   const statusKind: StatusKind | null =
     Platform.OS !== 'android'
@@ -332,6 +376,7 @@ export default function App() {
             onVolumeUp={UsbAudio.volumeUp}
           />
         )}
+        <SignalBar feed={signalFeed} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

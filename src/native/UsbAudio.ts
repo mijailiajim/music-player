@@ -9,6 +9,13 @@ import type {DirEntry, StorageVolumeInfo} from '../core/model';
 
 export type {StorageVolumeInfo};
 
+/** Evento nativo "musicVolumeChanged": nuevo nivel del volumen multimedia. */
+export interface MusicVolumeEvent {
+  volume: number;
+  previous: number;
+  max: number;
+}
+
 interface UsbAudioNative {
   getVolumes(): Promise<StorageVolumeInfo[]>;
   listDir(path: string): Promise<DirEntry[]>;

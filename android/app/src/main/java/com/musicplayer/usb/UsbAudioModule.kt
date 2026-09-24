@@ -36,12 +36,15 @@ import java.io.File
  *    Access en Android 11+, READ_EXTERNAL_STORAGE antes).
  *  - adjustVolume: volumen multimedia del sistema.
  *  - Evento "usbStorageChanged": montaje/expulsión de medios y conexión USB.
- *  - Evento "remoteKey": teclas de control remoto reenviadas por MainActivity.
+ *  - Evento "remoteKey": teclas del control remoto reenviadas por MainActivity.
+ *  - Evento "musicVolumeChanged": cambios del volumen multimedia (se muestran
+ *    en la línea de señales).
  */
 class UsbAudioModule(private val ctx: ReactApplicationContext) :
     ReactContextBaseJavaModule(ctx) {
 
   private var receiver: BroadcastReceiver? = null
+  private var volumeReceiver: BroadcastReceiver? = null
 
   override fun getName(): String = NAME
 
@@ -72,15 +75,35 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     }
     registerCompat(r, mediaFilter)
     registerCompat(r, usbFilter)
+
+    // En algunos equipos (Android TV) las teclas de volumen nunca llegan a la
+    // app: el sistema las atiende directo. El cambio de volumen sí se puede
+    // escuchar, así esos botones también muestran una señal.
+    val v = object : BroadcastReceiver() {
+      override fun onReceive(context: Context?, intent: Intent?) {
+        if (intent == null ||
+            intent.getIntExtra(EXTRA_VOLUME_STREAM_TYPE, -1) != AudioManager.STREAM_MUSIC) {
+          return
+        }
+        val params = Arguments.createMap()
+        params.putInt("volume", intent.getIntExtra(EXTRA_VOLUME_STREAM_VALUE, -1))
+        params.putInt("previous", intent.getIntExtra(EXTRA_PREV_VOLUME_STREAM_VALUE, -1))
+        params.putInt("max", maxMusicVolume())
+        emit("musicVolumeChanged", params)
+      }
+    }
+    volumeReceiver = v
+    registerCompat(v, IntentFilter(VOLUME_CHANGED_ACTION))
   }
 
   override fun invalidate() {
-    receiver?.let {
+    for (r in listOfNotNull(receiver, volumeReceiver)) {
       try {
-        ctx.unregisterReceiver(it)
+        ctx.unregisterReceiver(r)
       } catch (_: Exception) {}
     }
     receiver = null
+    volumeReceiver = null
     super.invalidate()
   }
 
@@ -88,7 +111,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
       // Solo se esperan broadcasts del sistema; EXPORTED garantiza la entrega
       // en todos los OEM y un broadcast falsificado solo provocaría un
-      // re-escaneo inofensivo.
+      // re-escaneo o una señal de volumen en pantalla, ambos inofensivos.
       ctx.registerReceiver(r, filter, Context.RECEIVER_EXPORTED)
     } else {
       ctx.registerReceiver(r, filter)
@@ -219,6 +242,14 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     }
   }
 
+  private fun maxMusicVolume(): Int =
+      try {
+        (ctx.getSystemService(Context.AUDIO_SERVICE) as AudioManager)
+            .getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+      } catch (_: Exception) {
+        -1
+      }
+
   @ReactMethod
   fun adjustVolume(direction: Int) {
     try {
@@ -238,6 +269,14 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
   companion object {
     const val NAME = "UsbAudio"
     private const val REQUEST_STORAGE = 4711
+
+    // Broadcast del sistema al cambiar el volumen de un stream (sus constantes
+    // están ocultas en el SDK público).
+    private const val VOLUME_CHANGED_ACTION = "android.media.VOLUME_CHANGED_ACTION"
+    private const val EXTRA_VOLUME_STREAM_TYPE = "android.media.EXTRA_VOLUME_STREAM_TYPE"
+    private const val EXTRA_VOLUME_STREAM_VALUE = "android.media.EXTRA_VOLUME_STREAM_VALUE"
+    private const val EXTRA_PREV_VOLUME_STREAM_VALUE =
+        "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE"
 
     private val REMOTE_KEYS =
         setOf(
@@ -265,22 +304,24 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_PAGE_DOWN)
 
     /**
-     * Reenvía a JS las teclas de interés de un control remoto. Devuelve true
-     * si la tecla fue consumida. Volumen y Back no se tocan para conservar el
-     * comportamiento del sistema.
+     * Reenvía a JS TODAS las teclas del control (con su nombre, p. ej.
+     * "KEYCODE_BACK") para mostrarlas en la línea de señales. Devuelve true
+     * (consume la tecla) SOLO para las teclas de interés; el resto (volumen,
+     * Back, Menú…) se muestra pero sigue su curso normal en el sistema.
      */
     fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
-      if (keyCode !in REMOTE_KEYS) return false
+      val consumed = keyCode in REMOTE_KEYS
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
           app.reactNativeHost.reactInstanceManager.currentReactContext ?: return false
       val params = Arguments.createMap()
       params.putInt("keyCode", keyCode)
       params.putInt("repeatCount", event?.repeatCount ?: 0)
+      params.putString("keyName", KeyEvent.keyCodeToString(keyCode))
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)
-      return true
+      return consumed
     }
   }
 }

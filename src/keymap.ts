@@ -27,4 +27,6 @@ export const KeyCodes = {
 export interface RemoteKeyEvent {
   keyCode: number;
   repeatCount: number;
+  /** Nombre que da Android (`KeyEvent.keyCodeToString`), p. ej. "KEYCODE_BACK". */
+  keyName?: string;
 }
