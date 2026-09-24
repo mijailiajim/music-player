@@ -2,6 +2,18 @@
 
 Reproductor de música **Android** (React Native) para **pendrives conectados al celular por USB OTG**. Pensado para usarse casi sin tocar la pantalla: al enchufar el pendrive la app se abre y **empieza a reproducir sola**, muestra el tema actual con **letras muy grandes**, la lista de próximas canciones de la carpeta, y se maneja completo con un **control remoto Bluetooth**.
 
+## 📥 Descargar el APK
+
+Compilado automáticamente en cada push por GitHub Actions y publicado en la rama [`apk-dist`](https://github.com/mijailiajim/music-player/tree/apk-dist):
+
+| Archivo | Para qué celular | Tamaño |
+|---|---|---|
+| **[MusicaUSB-arm64.apk](https://github.com/mijailiajim/music-player/raw/apk-dist/MusicaUSB-arm64.apk)** ⭐ | Cualquier celular de ~2017 en adelante (64 bits) | ~7,5 MB |
+| [MusicaUSB-arm32.apk](https://github.com/mijailiajim/music-player/raw/apk-dist/MusicaUSB-arm32.apk) | Celulares viejos de 32 bits | ~7 MB |
+| [MusicaUSB-universal.apk](https://github.com/mijailiajim/music-player/raw/apk-dist/MusicaUSB-universal.apk) | Cualquiera (incluye emuladores x86) | ~18 MB |
+
+Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/apk-dist/SHA256SUMS.txt). También quedan como artefacto de cada ejecución en [Actions](https://github.com/mijailiajim/music-player/actions). Instalación: abrir el APK en el celular y permitir *"instalar apps de origen desconocido"* (firma de prueba, app de uso personal).
+
 ## Qué hace
 
 - **Arranque automático**: al conectar un pendrive, Android ofrece abrir "Música USB" (si marcas *"Usar de forma predeterminada"*, se abre sola cada vez). Ya abierta, detecta el montaje del pendrive, lo escanea y **reproduce inmediatamente**.
