@@ -5,21 +5,24 @@
  * hace ahora mismo, incluyendo detalles que el usuario reportó desde el
  * dispositivo real.
  *
- * Nota sobre el botón OK REDONDO: en el control del usuario NO manda un código
- * de tecla ni un evento "remote" que la app reciba como tal. Lo que la app
- * recibe son TRES señales de estado del reproductor: `buffering → ready →
- * playing` (así lo capturó el cuadro de diagnóstico en el dispositivo real).
- * Esas señales son la CONSECUENCIA del comando (track-player carga una pista de
- * forma nativa), no la pulsación en sí. El código de este commit solo reacciona
- * al cambio de pista activa (ignora `PlaybackState`), y el efecto observable es
- * que queda sonando la PISTA ANTERIOR. Eso se caracteriza con esas 3 señales en
- * el test "BOTÓN OK redondo" de abajo. La tecla central del D-pad (DPAD_CENTER)
- * es otra cosa: reproduce la selección, y se usa como sonda para comprobar
- * dónde quedó el cursor tras navegar.
+ * Nota sobre el botón OK REDONDO y Re Pág/Av Pág: están ANULADOS. El OK manda
+ * una tecla de confirmación (DPAD_CENTER/ENTER…) que Android convertía en un
+ * clic sobre el botón enfocado de la pantalla (⏮) antes de que la app la viera:
+ * por eso sonaba la pista anterior y solo se veían las señales `buffering →
+ * ready → playing`. Ahora MainActivity captura esas teclas antes que la
+ * interfaz (prevent default) y las reenvía; la app las manda a su clase
+ * (OkButtonCommand, PageUpCommand, PageDownCommand), cuya función está vacía:
+ * no hacen nada. Dónde quedó el cursor se comprueba en la lista (FolderList).
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import {DeviceEventEmitter, Platform} from 'react-native';
+import {DeviceEventEmitter, Platform, Text} from 'react-native';
+import SignalBar from '../src/components/SignalBar';
+import {
+  OkButtonCommand,
+  PageDownCommand,
+  PageUpCommand,
+} from '../src/core/remote/commands';
 import {KeyCodes} from '../src/keymap';
 
 // La app trata a iOS como "no soportado"; para el test se comporta como Android.
@@ -215,7 +218,36 @@ function emitKey(keyCode: number) {
   });
 }
 
+// Todo lo que puede hacer el reproductor ante un botón.
+const PLAYER_ACTIONS = [
+  'reset',
+  'add',
+  'play',
+  'pause',
+  'skip',
+  'skipToNext',
+  'skipToPrevious',
+  'seekTo',
+];
+function clearPlayerCalls() {
+  PLAYER_ACTIONS.forEach(name => mockPlayer[name].mockClear());
+}
+function expectNoPlayerCalls() {
+  PLAYER_ACTIONS.forEach(name =>
+    expect(mockPlayer[name]).not.toHaveBeenCalled(),
+  );
+}
+
 let root: TestRenderer.ReactTestRenderer | null = null;
+
+/** Texto de la línea de señales (abajo de todo). */
+function signalText(): string {
+  return root!.root
+    .findByType(SignalBar)
+    .findAllByType(Text)
+    .map(t => ([] as unknown[]).concat(t.props.children).join(''))
+    .join(' ');
+}
 
 async function mountAndLoad() {
   await act(async () => {
@@ -262,58 +294,75 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     expect(mockCaptured.folderList.activeTrackIndex).toBe(0);
   });
 
-  it('BOTÓN OK redondo: sus 3 señales (buffering→ready→playing) no cambian la vista; queda sonando la PISTA ANTERIOR, no la seleccionada', async () => {
-    await mountAndLoad();
-    const added = mockPlayer.add.mock.calls[0][0]; // 36 pistas en orden
-    // Está sonando la 3ª (índice 2): la app la muestra.
-    act(() => {
-      tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[2]});
-    });
-    await flush();
-    expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion');
+  it('BOTÓN OK redondo: se captura y no hace nada (su función está vacía)', async () => {
+    const okSpy = jest.spyOn(OkButtonCommand.prototype, 'execute');
+    try {
+      await mountAndLoad();
+      const added = mockPlayer.add.mock.calls[0][0]; // 36 pistas en orden
+      // Está sonando la 3ª (índice 2) y el cursor queda en la 8ª (índice 7).
+      act(() => {
+        tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[2]});
+      });
+      for (let i = 0; i < 5; i++) {
+        emitKey(KeyCodes.DPAD_DOWN);
+      }
+      await flush();
+      expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion');
+      expect(mockCaptured.folderList.selectedTrack).toBe(7);
 
-    // El usuario deja el CURSOR sobre otra pista (baja hasta la 8ª, índice 7),
-    // para comprobar que OK NO reproduce lo seleccionado.
-    for (let i = 0; i < 5; i++) {
-      emitKey(KeyCodes.DPAD_DOWN);
+      // Se aprieta OK: la pulsación se captura (se ve en la línea de señales)
+      // y llega a OkButtonCommand, que no hace nada.
+      clearPlayerCalls();
+      emitKey(KeyCodes.DPAD_CENTER);
+      await flush();
+      expect(okSpy).toHaveBeenCalledTimes(1);
+      expect(signalText()).toContain('DPAD_CENTER(23)');
+
+      // Igual con cualquier otra tecla de confirmación que pueda mandar el OK.
+      const otherOkKeys = [
+        KeyCodes.ENTER,
+        KeyCodes.NUMPAD_ENTER,
+        KeyCodes.SPACE,
+        KeyCodes.BUTTON_SELECT,
+        KeyCodes.BUTTON_A,
+      ];
+      otherOkKeys.forEach(emitKey);
+      await flush();
+      expect(okSpy).toHaveBeenCalledTimes(1 + otherOkKeys.length);
+
+      // Nada cambió: ni el reproductor, ni lo que suena, ni el cursor.
+      expectNoPlayerCalls();
+      expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion');
+      expect(mockCaptured.folderList.selectedTrack).toBe(7);
+    } finally {
+      okSpy.mockRestore();
     }
-    await flush();
-    expect(mockCaptured.folderList.selectedTrack).toBe(7);
-
-    // Al apretar OK, la app recibe EXACTAMENTE estas 3 señales de estado
-    // (según el diagnóstico del dispositivo real). Por sí solas NO cambian lo
-    // que se muestra ni recargan la cola: este commit ignora PlaybackState.
-    const addCallsBefore = mockPlayer.add.mock.calls.length;
-    act(() => tpMock.__emitTp({type: 'PlaybackState', state: 'buffering'}));
-    act(() => tpMock.__emitTp({type: 'PlaybackState', state: 'ready'}));
-    act(() => tpMock.__emitTp({type: 'PlaybackState', state: 'playing'}));
-    await flush();
-    expect(mockCaptured.nowPlaying.track.title).toBe('03 Cancion'); // sin cambios
-    expect(mockPlayer.add.mock.calls.length).toBe(addCallsBefore); // no recarga
-    expect(mockCaptured.folderList.selectedTrack).toBe(7); // el cursor no se mueve
-
-    // El resultado del comando OK (resuelto de forma nativa) es que queda
-    // activa la PISTA ANTERIOR (la 2ª, índice 1), NO la seleccionada (8ª).
-    act(() => {
-      tpMock.__emitTp({type: 'PlaybackActiveTrackChanged', track: added[1]});
-    });
-    await flush();
-    expect(mockCaptured.nowPlaying.track.title).toBe('02 Cancion');
-    expect(mockCaptured.nowPlaying.track.title).not.toBe('08 Cancion');
   });
 
-  it('PAGE ▲/▼ solo le dan play a la música actual (una sola carpeta)', async () => {
-    await mountAndLoad();
-    mockPlayer.skip.mockClear();
-    emitKey(KeyCodes.PAGE_DOWN);
-    await flush();
-    // Con una sola carpeta, "carpeta siguiente" = la misma → 1ª pista (índice 0).
-    expect(mockPlayer.skip).toHaveBeenCalledWith(0);
+  it('PAGE ▲/▼ se capturan y no hacen nada (sus funciones están vacías)', async () => {
+    const upSpy = jest.spyOn(PageUpCommand.prototype, 'execute');
+    const downSpy = jest.spyOn(PageDownCommand.prototype, 'execute');
+    try {
+      await mountAndLoad();
+      const selectedBefore = mockCaptured.folderList.selectedTrack;
+      clearPlayerCalls();
 
-    mockPlayer.skip.mockClear();
-    emitKey(KeyCodes.PAGE_UP);
-    await flush();
-    expect(mockPlayer.skip).toHaveBeenCalledWith(0);
+      emitKey(KeyCodes.PAGE_DOWN);
+      await flush();
+      expect(downSpy).toHaveBeenCalledTimes(1);
+      expect(signalText()).toContain('PAGE_DOWN(93)');
+
+      emitKey(KeyCodes.PAGE_UP);
+      await flush();
+      expect(upSpy).toHaveBeenCalledTimes(1);
+      expect(signalText()).toContain('PAGE_UP(92)');
+
+      expectNoPlayerCalls();
+      expect(mockCaptured.folderList.selectedTrack).toBe(selectedBefore);
+    } finally {
+      upSpy.mockRestore();
+      downSpy.mockRestore();
+    }
   });
 
   it('el botón MENÚ (3 líneas, keycode 82) no hace nada', async () => {
@@ -349,26 +398,19 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     expect(mockPlayer.pause).toHaveBeenCalled();
   });
 
-  it('las flechas ▲/▼ mueven el cursor; la tecla central reproduce lo seleccionado', async () => {
+  it('las flechas ▲/▼ mueven el cursor', async () => {
     await mountAndLoad();
-    mockPlayer.skip.mockClear();
-    // Bajar 3 y reproducir con la tecla central del D-pad.
+    // Bajar 3: el cursor queda en la 4ª (índice 3).
     emitKey(KeyCodes.DPAD_DOWN);
     emitKey(KeyCodes.DPAD_DOWN);
     emitKey(KeyCodes.DPAD_DOWN);
     await flush();
-    emitKey(KeyCodes.DPAD_CENTER);
-    await flush();
-    // Cursor en la 4ª (índice 3) → reproduce esa (índice global 3).
-    expect(mockPlayer.skip).toHaveBeenCalledWith(3);
+    expect(mockCaptured.folderList.selectedTrack).toBe(3);
 
-    // Subir 1 y reproducir → la 3ª (índice 2).
-    mockPlayer.skip.mockClear();
+    // Subir 1 → la 3ª (índice 2).
     emitKey(KeyCodes.DPAD_UP);
     await flush();
-    emitKey(KeyCodes.DPAD_CENTER);
-    await flush();
-    expect(mockPlayer.skip).toHaveBeenCalledWith(2);
+    expect(mockCaptured.folderList.selectedTrack).toBe(2);
   });
 
   it('los botones de volumen en pantalla ajustan el volumen del sistema', async () => {
@@ -390,21 +432,18 @@ describe('Pendrive con varias carpetas (navegación entre carpetas)', () => {
 
   it('las flechas ◀/▶ se mueven entre carpetas', async () => {
     await mountAndLoad();
-    // Grupos ordenados: A-Rock (startIndex 0), B-Pop (2), C-Jazz (4).
+    // Grupos ordenados: A-Rock, B-Pop, C-Jazz.
     expect(mockCaptured.folderList.folderCount).toBe(3);
+    expect(mockCaptured.folderList.group.name).toBe('A-Rock');
 
-    mockPlayer.skip.mockClear();
-    emitKey(KeyCodes.DPAD_RIGHT); // carpeta 0 → 1 (B-Pop)
+    emitKey(KeyCodes.DPAD_RIGHT); // carpeta 1 → 2 (B-Pop)
     await flush();
-    emitKey(KeyCodes.DPAD_CENTER); // reproduce la 1ª de B-Pop (índice global 2)
-    await flush();
-    expect(mockPlayer.skip).toHaveBeenCalledWith(2);
+    expect(mockCaptured.folderList.group.name).toBe('B-Pop');
+    expect(mockCaptured.folderList.folderNumber).toBe(2);
 
-    mockPlayer.skip.mockClear();
-    emitKey(KeyCodes.DPAD_LEFT); // carpeta 1 → 0 (A-Rock)
+    emitKey(KeyCodes.DPAD_LEFT); // carpeta 2 → 1 (A-Rock)
     await flush();
-    emitKey(KeyCodes.DPAD_CENTER); // reproduce la 1ª de A-Rock (índice global 0)
-    await flush();
-    expect(mockPlayer.skip).toHaveBeenCalledWith(0);
+    expect(mockCaptured.folderList.group.name).toBe('A-Rock');
+    expect(mockCaptured.folderList.folderNumber).toBe(1);
   });
 });

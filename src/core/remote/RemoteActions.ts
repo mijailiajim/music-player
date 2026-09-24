@@ -8,8 +8,6 @@ export interface RemoteActions {
   moveCursor(delta: number): void;
   /** Mueve el cursor `delta` carpetas (−1 anterior, +1 siguiente). */
   moveFolder(delta: number): void;
-  /** Reproduce la pista seleccionada. */
-  playSelection(): void;
   /** Reproduce la 1ª pista de la carpeta a `delta` de la que suena. */
   playFolderOffset(delta: number): void;
   /** Alterna play/pausa. */

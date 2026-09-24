@@ -17,10 +17,10 @@ export class MoveFolderCommand implements RemoteCommand {
   }
 }
 
-/** Reproduce la pista seleccionada. */
-export class PlaySelectionCommand implements RemoteCommand {
-  execute(actions: RemoteActions): void {
-    actions.playSelection();
+/** Botón OK (redondo) del control: anulado, no hace nada. */
+export class OkButtonCommand implements RemoteCommand {
+  execute(): void {
+    // Vacía a propósito: el botón OK no hace nada.
   }
 }
 
@@ -29,6 +29,20 @@ export class PlayFolderOffsetCommand implements RemoteCommand {
   constructor(private readonly delta: number) {}
   execute(actions: RemoteActions): void {
     actions.playFolderOffset(this.delta);
+  }
+}
+
+/** Botón Re Pág (Page ▲) del control: anulado, no hace nada. */
+export class PageUpCommand implements RemoteCommand {
+  execute(): void {
+    // Vacía a propósito: el botón Page ▲ no hace nada.
+  }
+}
+
+/** Botón Av Pág (Page ▼) del control: anulado, no hace nada. */
+export class PageDownCommand implements RemoteCommand {
+  execute(): void {
+    // Vacía a propósito: el botón Page ▼ no hace nada.
   }
 }
 

@@ -129,12 +129,6 @@ export default function App() {
           );
         }
       },
-      playSelection: () => {
-        const gs = groupsRef.current;
-        if (gs.length > 0) {
-          playTrackAt(selectionModel.globalIndexOf(selectionRef.current, gs));
-        }
-      },
       playFolderOffset: delta => {
         const gs = groupsRef.current;
         if (gs.length > 0) {

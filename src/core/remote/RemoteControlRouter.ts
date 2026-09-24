@@ -6,10 +6,12 @@ import {
   MoveCursorCommand,
   MoveFolderCommand,
   NextTrackCommand,
+  OkButtonCommand,
+  PageDownCommand,
+  PageUpCommand,
   PauseCommand,
   PlayCommand,
   PlayFolderOffsetCommand,
-  PlaySelectionCommand,
   PreviousTrackCommand,
   SeekCommand,
   TogglePlayPauseCommand,
@@ -21,8 +23,9 @@ import {
  *
  *   ▲ / ▼            mover el cursor
  *   ◀ / ▶            cambiar de carpeta
- *   OK / Enter       reproducir lo seleccionado
- *   Av Pág / Re Pág  reproducir la carpeta siguiente / anterior
+ *   OK / Enter       anulado: función vacía (OkButtonCommand)
+ *   Re Pág / Av Pág  anulados: funciones vacías (PageUpCommand/PageDownCommand)
+ *   Canal − / +      reproducir la carpeta anterior / siguiente
  *   multimedia       play/pausa, anterior/siguiente, adelantar/atrasar
  */
 export class RemoteControlRouter {
@@ -51,15 +54,17 @@ export class RemoteControlRouter {
     bind([KeyCodes.DPAD_DOWN], new MoveCursorCommand(1));
     bind([KeyCodes.DPAD_LEFT], new MoveFolderCommand(-1));
     bind([KeyCodes.DPAD_RIGHT], new MoveFolderCommand(1));
+    // Todas las teclas de confirmación: la del OK del control es una de ellas.
     bind(
       [
         KeyCodes.DPAD_CENTER,
         KeyCodes.ENTER,
         KeyCodes.NUMPAD_ENTER,
+        KeyCodes.SPACE,
         KeyCodes.BUTTON_SELECT,
         KeyCodes.BUTTON_A,
       ],
-      new PlaySelectionCommand(),
+      new OkButtonCommand(),
     );
     bind(
       [KeyCodes.MEDIA_PLAY_PAUSE, KeyCodes.HEADSETHOOK],
@@ -71,14 +76,10 @@ export class RemoteControlRouter {
     bind([KeyCodes.MEDIA_PREVIOUS], new PreviousTrackCommand());
     bind([KeyCodes.MEDIA_FAST_FORWARD], new SeekCommand(SEEK_STEP_SECONDS));
     bind([KeyCodes.MEDIA_REWIND], new SeekCommand(-SEEK_STEP_SECONDS));
-    bind(
-      [KeyCodes.CHANNEL_UP, KeyCodes.PAGE_DOWN],
-      new PlayFolderOffsetCommand(1),
-    );
-    bind(
-      [KeyCodes.CHANNEL_DOWN, KeyCodes.PAGE_UP],
-      new PlayFolderOffsetCommand(-1),
-    );
+    bind([KeyCodes.CHANNEL_UP], new PlayFolderOffsetCommand(1));
+    bind([KeyCodes.CHANNEL_DOWN], new PlayFolderOffsetCommand(-1));
+    bind([KeyCodes.PAGE_UP], new PageUpCommand());
+    bind([KeyCodes.PAGE_DOWN], new PageDownCommand());
 
     return bindings;
   }

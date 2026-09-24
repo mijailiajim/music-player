@@ -278,17 +278,33 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     private const val EXTRA_PREV_VOLUME_STREAM_VALUE =
         "android.media.EXTRA_PREV_VOLUME_STREAM_VALUE"
 
+    /**
+     * Botones anulados ("prevent default"): el OK —todas las teclas de
+     * confirmación— y Re Pág/Av Pág. Android convierte una tecla de
+     * confirmación en un clic sobre el botón enfocado de la pantalla (el ⏮,
+     * primero en recibir el foco) ANTES de llamar a onKeyDown, así que la app
+     * nunca la veía. Por eso se capturan en dispatchKeyEvent, antes que la
+     * interfaz y que el sistema: se consumen al bajar y al soltar, y solo se
+     * avisan a JS, donde su función está vacía.
+     */
+    private val PREVENTED_KEYS =
+        setOf(
+            KeyEvent.KEYCODE_DPAD_CENTER,
+            KeyEvent.KEYCODE_ENTER,
+            KeyEvent.KEYCODE_NUMPAD_ENTER,
+            KeyEvent.KEYCODE_SPACE,
+            KeyEvent.KEYCODE_BUTTON_SELECT,
+            KeyEvent.KEYCODE_BUTTON_A,
+            KeyEvent.KEYCODE_PAGE_UP,
+            KeyEvent.KEYCODE_PAGE_DOWN)
+
+    /** Resto de teclas del control: se consumen en onKeyDown. */
     private val REMOTE_KEYS =
         setOf(
             KeyEvent.KEYCODE_DPAD_UP,
             KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_LEFT,
             KeyEvent.KEYCODE_DPAD_RIGHT,
-            KeyEvent.KEYCODE_DPAD_CENTER,
-            KeyEvent.KEYCODE_ENTER,
-            KeyEvent.KEYCODE_NUMPAD_ENTER,
-            KeyEvent.KEYCODE_BUTTON_SELECT,
-            KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
@@ -299,9 +315,20 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
             KeyEvent.KEYCODE_MEDIA_REWIND,
             KeyEvent.KEYCODE_CHANNEL_UP,
-            KeyEvent.KEYCODE_CHANNEL_DOWN,
-            KeyEvent.KEYCODE_PAGE_UP,
-            KeyEvent.KEYCODE_PAGE_DOWN)
+            KeyEvent.KEYCODE_CHANNEL_DOWN)
+
+    /**
+     * Captura previa, desde MainActivity.dispatchKeyEvent: si es un botón
+     * anulado lo consume (devuelve true, al bajar y al soltar) y, al bajar, lo
+     * avisa a JS para mostrarlo y ejecutar su función (vacía).
+     */
+    fun interceptKey(activity: Activity, event: KeyEvent): Boolean {
+      if (event.keyCode !in PREVENTED_KEYS) return false
+      if (event.action == KeyEvent.ACTION_DOWN) {
+        emitKey(activity, event.keyCode, event)
+      }
+      return true
+    }
 
     /**
      * Reenvía a JS TODAS las teclas del control (con su nombre, p. ej.
@@ -309,8 +336,11 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
      * (consume la tecla) SOLO para las teclas de interés; el resto (volumen,
      * Back, Menú…) se muestra pero sigue su curso normal en el sistema.
      */
-    fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
-      val consumed = keyCode in REMOTE_KEYS
+    fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean =
+        emitKey(activity, keyCode, event) && keyCode in REMOTE_KEYS
+
+    /** Emite el evento "remoteKey" a JS; false si React todavía no está listo. */
+    private fun emitKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
           app.reactNativeHost.reactInstanceManager.currentReactContext ?: return false
@@ -321,7 +351,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)
-      return consumed
+      return true
     }
   }
 }

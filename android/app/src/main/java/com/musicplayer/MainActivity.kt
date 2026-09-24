@@ -24,9 +24,19 @@ class MainActivity : ReactActivity() {
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
   }
 
-  // Teclas de controles remotos Bluetooth. Todas se reenvían a JS para la línea
-  // de señales, pero solo se consumen las del control (D-pad, OK, multimedia):
-  // volumen, Back y Menú siguen su comportamiento normal en el sistema.
+  // Primero que nada (antes que el botón enfocado de la pantalla y que el
+  // sistema) se capturan el OK y Re Pág/Av Pág: se anulan ("prevent default")
+  // y solo se avisan a JS, donde su función está vacía.
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    if (UsbAudioModule.interceptKey(this, event)) {
+      return true
+    }
+    return super.dispatchKeyEvent(event)
+  }
+
+  // Resto de teclas de controles remotos Bluetooth. Todas se reenvían a JS para
+  // la línea de señales, pero solo se consumen las del control (D-pad,
+  // multimedia): volumen, Back y Menú siguen su comportamiento normal.
   override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
     if (UsbAudioModule.handleRemoteKey(this, keyCode, event)) {
       return true
