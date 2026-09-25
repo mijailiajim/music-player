@@ -61,12 +61,12 @@ export class SkipOrScrubCommand implements RemoteCommand {
 }
 
 /**
- * Botón OK (redondo) del control: reproduce la canción resaltada; si es la
- * que ya suena, alterna pausa/play.
+ * Botón OK (redondo) del control: sobre una carpeta entra en ella; sobre una
+ * canción la reproduce (si es la que ya suena, alterna pausa/play).
  */
 export class OkButtonCommand implements RemoteCommand {
   execute(actions: RemoteActions): void {
-    actions.playSelection();
+    actions.activateSelection();
   }
 }
 

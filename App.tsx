@@ -21,16 +21,21 @@ import {
   usePlaybackState,
   useTrackPlayerEvents,
 } from 'react-native-track-player';
+import {TrackPlayerSignalTranslator} from './src/adapters/TrackPlayerSignalTranslator';
 import {UsbMonitor} from './src/adapters/UsbMonitor';
 import AutoOpenBanner from './src/components/AutoOpenBanner';
 import Controls from './src/components/Controls';
 import FolderList from './src/components/FolderList';
 import NowPlaying from './src/components/NowPlaying';
+import SignalBar from './src/components/SignalBar';
 import StatusScreen, {StatusKind} from './src/components/StatusScreen';
 import {BrowseState, FolderBrowser} from './src/core/browser/FolderBrowser';
 import {MusicLibrary} from './src/core/library/MusicLibrary';
 import {RemoteActions} from './src/core/remote/RemoteActions';
 import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
+import {KeyNameResolver} from './src/core/signals/KeyNameResolver';
+import {SignalFactory} from './src/core/signals/SignalFactory';
+import {SignalFeed} from './src/core/signals/SignalFeed';
 import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
 import {RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanLibrary, totalTracks, TrackInfo} from './src/library';
@@ -79,6 +84,18 @@ export default function App() {
 
   // Colaboradores del núcleo (sin estado propio: seguros de compartir).
   const volumeSelector = useMemo(() => new RemovableVolumeSelector(), []);
+
+  // Línea de señales (diagnóstico): lo que llega al apretar cada botón del
+  // control. Solo se muestra; no cambia lo que hace la app.
+  const signalFeed = useMemo(() => new SignalFeed(), []);
+  const signalFactory = useMemo(
+    () => new SignalFactory(new KeyNameResolver()),
+    [],
+  );
+  const playerSignals = useMemo(
+    () => new TrackPlayerSignalTranslator(signalFactory),
+    [signalFactory],
+  );
 
   // Refs espejo para leer el estado vigente desde listeners estables.
   const groupsRef = useRef<FolderGroup[]>([]);
@@ -133,12 +150,15 @@ export default function App() {
           playTrack(next.track);
         }
       },
-      playSelection: () => {
-        const item = browserRef.current?.selected(browseRef.current);
-        if (item?.kind !== 'track') {
+      activateSelection: () => {
+        const b = browserRef.current;
+        const item = b?.selected(browseRef.current);
+        if (!b || !item) {
           return;
         }
-        if (item.track.path === activeTrackRef.current?.id) {
+        if (item.kind === 'folder') {
+          updateBrowse(b.enter(browseRef.current));
+        } else if (item.track.path === activeTrackRef.current?.id) {
           togglePlayPause(); // es la que ya suena: pausa / play
         } else {
           playTrack(item.track);
@@ -303,23 +323,33 @@ export default function App() {
     // En Android 11+ se abre Ajustes y el permiso se re-verifica al volver.
   }, [refreshVolumes]);
 
-  useTrackPlayerEvents([Event.PlaybackActiveTrackChanged], event => {
-    if (event.type !== Event.PlaybackActiveTrackChanged) {
-      return;
-    }
-    const track = event.track as QueueTrack | undefined;
-    activeTrackRef.current = track;
-    setActiveTrack(track);
-    if (
-      typeof track?.id === 'string' &&
-      Date.now() - lastNavRef.current > NAV_IDLE_MS
-    ) {
-      const next = browserRef.current?.reveal(track.id);
-      if (next) {
-        showBrowse(next);
+  useTrackPlayerEvents(
+    [Event.PlaybackActiveTrackChanged, ...playerSignals.events],
+    event => {
+      // Estado del reproductor y comandos de la sesión de medios: solo se
+      // muestran en la línea de señales.
+      const signal = playerSignals.translate(event);
+      if (signal != null) {
+        signalFeed.record(signal);
+        return;
       }
-    }
-  });
+      if (event.type !== Event.PlaybackActiveTrackChanged) {
+        return;
+      }
+      const track = event.track as QueueTrack | undefined;
+      activeTrackRef.current = track;
+      setActiveTrack(track);
+      if (
+        typeof track?.id === 'string' &&
+        Date.now() - lastNavRef.current > NAV_IDLE_MS
+      ) {
+        const next = browserRef.current?.reveal(track.id);
+        if (next) {
+          showBrowse(next);
+        }
+      }
+    },
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -349,9 +379,20 @@ export default function App() {
       (event: RemoteKeyEvent) => {
         if (event.action === 'up') {
           remoteRouter.release(event.keyCode);
-        } else if (!event.repeatCount) {
-          // Mantener apretado lo resuelve cada botón con sus tiempos; las
-          // repeticiones automáticas de Android no repiten la acción.
+          return;
+        }
+        signalFeed.record(
+          event.pointer
+            ? signalFactory.pointerClick()
+            : signalFactory.key(
+                event.keyCode,
+                event.repeatCount,
+                event.keyName,
+              ),
+        );
+        // Mantener apretado lo resuelve cada botón con sus tiempos; las
+        // repeticiones automáticas de Android no repiten la acción.
+        if (!event.repeatCount) {
           remoteRouter.press(event.keyCode);
         }
       },
@@ -359,8 +400,18 @@ export default function App() {
     const appSub = AppState.addEventListener('change', state => {
       if (state === 'active') {
         recheckPermission();
+      } else if (state === 'background') {
+        signalFeed.record(signalFactory.app('background'));
       }
     });
+    // Si un botón abre otra cosa encima (p. ej. el asistente de voz), la app
+    // pierde el foco: se muestra en la línea de señales.
+    const blurSub = AppState.addEventListener('blur', () =>
+      signalFeed.record(signalFactory.app('blur')),
+    );
+    const focusSub = AppState.addEventListener('focus', () =>
+      signalFeed.record(signalFactory.app('focus')),
+    );
 
     return () => {
       cancelled = true;
@@ -369,8 +420,16 @@ export default function App() {
       playbackScrubber.cancel();
       keySub.remove();
       appSub.remove();
+      blurSub.remove();
+      focusSub.remove();
     };
-  }, [recheckPermission, refreshVolumes, remoteRouter]);
+  }, [
+    recheckPermission,
+    refreshVolumes,
+    remoteRouter,
+    signalFactory,
+    signalFeed,
+  ]);
 
   const statusKind: StatusKind | null =
     Platform.OS !== 'android'
@@ -413,6 +472,7 @@ export default function App() {
             onVolumeUp={UsbAudio.volumeUp}
           />
         )}
+        <SignalBar feed={signalFeed} />
       </SafeAreaView>
     </SafeAreaProvider>
   );

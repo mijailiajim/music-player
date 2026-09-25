@@ -24,7 +24,8 @@ import {
  *
  *   ▲ / ▼            mover el cursor (mantenidas: 3 por segundo; sin dar la vuelta)
  *   ◀ / ▶            canción anterior / siguiente (mantenidas: atrasar / adelantar)
- *   OK / Enter       reproducir la canción resaltada (si ya suena: pausa/play)
+ *   OK / Enter       entrar a la carpeta o reproducir la canción resaltada
+ *                    (si ya suena: pausa/play)
  *   Re Pág / Av Pág  subir un nivel / entrar a la carpeta resaltada
  *   Home/retorno     subir un nivel (no cierra la app)
  *   Canal − / +      reproducir la carpeta anterior / siguiente

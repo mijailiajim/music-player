@@ -16,13 +16,16 @@
  *  - ▲/▼ mueven el cursor y ◀/▶ reproducen la canción anterior/siguiente; en
  *    los extremos no dan la vuelta. Mantenidas: ▲/▼ recorren la lista a 3 por
  *    segundo y ◀/▶ pausan y atrasan/adelantan la canción 20 s por segundo.
- *  - OK sobre la canción que ya suena alterna pausa/play. Home/retorno (BACK)
- *    sube un nivel, como Re Pág.
+ *  - OK sobre una carpeta entra en ella; sobre la canción que ya suena alterna
+ *    pausa/play. Home/retorno (BACK) sube un nivel, como Re Pág.
+ *  - El clic del puntero del air mouse (modo cursor) funciona como OK.
+ *  - La línea de señales (abajo) muestra lo que llega de cada botón.
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import {DeviceEventEmitter, Platform} from 'react-native';
+import {AppState, DeviceEventEmitter, Platform, Text} from 'react-native';
 import AutoOpenBanner from '../src/components/AutoOpenBanner';
+import SignalBar from '../src/components/SignalBar';
 import {
   OkButtonCommand,
   PageDownCommand,
@@ -225,22 +228,24 @@ async function flush() {
 }
 
 /** Apretar una tecla (`repeatCount` > 0: repetición de Android al mantenerla). */
-function keyDown(keyCode: number, repeatCount = 0) {
+function keyDown(keyCode: number, repeatCount = 0, extra: object = {}) {
   act(() => {
     DeviceEventEmitter.emit('remoteKey', {
       keyCode,
       repeatCount,
       action: 'down',
+      ...extra,
     });
   });
 }
 
-function keyUp(keyCode: number) {
+function keyUp(keyCode: number, extra: object = {}) {
   act(() => {
     DeviceEventEmitter.emit('remoteKey', {
       keyCode,
       repeatCount: 0,
       action: 'up',
+      ...extra,
     });
   });
 }
@@ -285,6 +290,15 @@ function expectNoPlayerCalls() {
 }
 
 let root: TestRenderer.ReactTestRenderer | null = null;
+
+/** Texto de la línea de señales (abajo de todo). */
+function signalText(): string {
+  return root!.root
+    .findByType(SignalBar)
+    .findAllByType(Text)
+    .map(t => ([] as unknown[]).concat(t.props.children).join(''))
+    .join(' ');
+}
 
 /** Lo que muestra la lista: "📁 carpeta" o el título de la canción. */
 function listed(): string[] {
@@ -372,15 +386,55 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     }
   });
 
-  it('BOTÓN OK sobre una carpeta no hace nada', async () => {
+  it('BOTÓN OK sobre una carpeta entra en ella (como Av Pág)', async () => {
     await mountAndLoad();
-    emitKey(KeyCodes.PAGE_UP); // la raíz: solo carpetas
+    emitKey(KeyCodes.PAGE_UP); // la raíz, con el cursor en "Musica"
     await flush();
+    expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
     clearPlayerCalls();
+
     emitKey(KeyCodes.ENTER);
     await flush();
-    expectNoPlayerCalls();
-    expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+    expect(mockCaptured.folderList.title).toBe('Musica');
+    expect(mockCaptured.folderList.items).toHaveLength(36);
+    expect(mockCaptured.folderList.selectedIndex).toBe(0);
+    expectNoPlayerCalls(); // entrar no reproduce nada
+  });
+
+  it('el clic del puntero del air mouse (modo cursor) funciona como OK', async () => {
+    await mountAndLoad();
+    emitKey(KeyCodes.DPAD_DOWN); // la 2ª canción
+    clearPlayerCalls();
+    keyDown(KeyCodes.ENTER, 0, {pointer: true});
+    keyUp(KeyCodes.ENTER, {pointer: true});
+    await flush();
+    expect(mockPlayer.skip).toHaveBeenCalledWith(1);
+    expect(signalText()).toContain('CLIC(mouse)');
+  });
+
+  it('la línea de señales muestra cada botón con su nombre y código', async () => {
+    await mountAndLoad();
+    expect(signalText()).toContain('presiona un botón del control');
+
+    emitKey(KeyCodes.DPAD_DOWN);
+    expect(signalText()).toContain('DPAD_DOWN(20)');
+
+    // Una tecla que la app no usa (p. ej. el micrófono) también se ve, con el
+    // nombre que manda Android.
+    keyDown(231, 0, {keyName: 'KEYCODE_VOICE_ASSIST'});
+    keyUp(231);
+    expect(signalText()).toContain('VOICE_ASSIST(231)');
+  });
+
+  it('si otra cosa se abre encima (p. ej. el asistente), la línea de señales lo muestra', async () => {
+    await mountAndLoad();
+    const listeners = (AppState.addEventListener as jest.Mock).mock.calls;
+    const onBlur = listeners.find(([type]) => type === 'blur')?.[1];
+    const onFocus = listeners.find(([type]) => type === 'focus')?.[1];
+    act(() => onBlur());
+    expect(signalText()).toContain('app sin foco');
+    act(() => onFocus());
+    expect(signalText()).toContain('app con foco');
   });
 
   it('PAGE ▲ sube de nivel y PAGE ▼ entra: se ven TODAS las carpetas y adentro solo la música', async () => {

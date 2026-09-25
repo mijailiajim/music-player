@@ -18,7 +18,7 @@ function mockActions(): jest.Mocked<RemoteActions> {
   return {
     moveCursor: jest.fn().mockReturnValue(true),
     playAdjacent: jest.fn(),
-    playSelection: jest.fn(),
+    activateSelection: jest.fn(),
     startScrub: jest.fn(),
     finishScrub: jest.fn(),
     goUp: jest.fn(),
@@ -70,7 +70,7 @@ afterEach(() => {
   jest.restoreAllMocks();
 });
 
-describe('OK: reproduce la seleccionada (si ya suena, pausa/play)', () => {
+describe('OK: entra a la carpeta o reproduce la canción (si ya suena, pausa/play)', () => {
   it.each([
     ['DPAD_CENTER', KeyCodes.DPAD_CENTER],
     ['ENTER', KeyCodes.ENTER],
@@ -78,12 +78,12 @@ describe('OK: reproduce la seleccionada (si ya suena, pausa/play)', () => {
     ['SPACE', KeyCodes.SPACE],
     ['BUTTON_SELECT', KeyCodes.BUTTON_SELECT],
     ['BUTTON_A', KeyCodes.BUTTON_A],
-  ])('%s → OkButtonCommand → playSelection', (_name, keyCode) => {
+  ])('%s → OkButtonCommand → activateSelection', (_name, keyCode) => {
     const spy = jest.spyOn(OkButtonCommand.prototype, 'execute');
     const actions = mockActions();
     tap(new RemoteControlRouter(actions), keyCode);
     expect(spy).toHaveBeenCalledTimes(1);
-    expectOnly(actions, 'playSelection');
+    expectOnly(actions, 'activateSelection');
   });
 });
 

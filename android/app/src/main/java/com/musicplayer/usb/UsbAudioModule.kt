@@ -14,7 +14,9 @@ import android.os.Environment
 import android.os.storage.StorageManager
 import android.os.storage.StorageVolume
 import android.provider.Settings
+import android.view.InputDevice
 import android.view.KeyEvent
+import android.view.MotionEvent
 import com.facebook.react.ReactApplication
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
@@ -38,7 +40,8 @@ import java.io.File
  *  - canAutoOpen / requestAutoOpen: permiso para abrirse sola al conectar el
  *    pendrive ("Mostrar sobre otras apps" en Android 10+).
  *  - Evento "usbStorageChanged": montaje/expulsión de medios y conexión USB.
- *  - Evento "remoteKey": teclas de control remoto reenviadas por MainActivity.
+ *  - Evento "remoteKey": teclas del control (y el clic del puntero, como OK)
+ *    reenviadas por MainActivity.
  */
 class UsbAudioModule(private val ctx: ReactApplicationContext) :
     ReactContextBaseJavaModule(ctx) {
@@ -266,17 +269,18 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     private const val REQUEST_STORAGE = 4711
 
     /**
-     * Teclas que se atrapan en MainActivity.dispatchKeyEvent, ANTES que la
-     * interfaz y que el sistema: se consumen al apretar y al soltar, y las dos
-     * cosas se avisan a JS.
+     * Teclas que la app usa. Se atrapan en MainActivity.dispatchKeyEvent,
+     * ANTES que la interfaz y que el sistema, y se consumen (al apretar y al
+     * soltar):
      *  - OK (todas las teclas de confirmación): si no, Android las convierte en
      *    un clic sobre el botón enfocado de la pantalla (⏮) sin pasar por la app.
      *  - Flechas: la app necesita saber cuándo se SUELTAN (mantener ▲/▼ recorre
      *    la lista; mantener ◀/▶ adelanta/atrasa la canción).
      *  - Re Pág / Av Pág y Home/retorno (BACK): navegan las carpetas. Así BACK
      *    tampoco cierra la app.
+     *  - Multimedia y canal.
      */
-    private val CAPTURED_KEYS =
+    private val USED_KEYS =
         setOf(
             KeyEvent.KEYCODE_DPAD_UP,
             KeyEvent.KEYCODE_DPAD_DOWN,
@@ -290,23 +294,7 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_BUTTON_A,
             KeyEvent.KEYCODE_PAGE_UP,
             KeyEvent.KEYCODE_PAGE_DOWN,
-            KeyEvent.KEYCODE_BACK)
-
-    /**
-     * Botones desactivados a propósito: se consumen y no hacen nada. El del
-     * micrófono (búsqueda / asistente de voz) y DEL.
-     */
-    private val DISABLED_KEYS =
-        setOf(
-            KeyEvent.KEYCODE_SEARCH,
-            KeyEvent.KEYCODE_VOICE_ASSIST,
-            KeyEvent.KEYCODE_ASSIST,
-            KeyEvent.KEYCODE_DEL,
-            KeyEvent.KEYCODE_FORWARD_DEL)
-
-    /** Resto de teclas del control (multimedia, canal): se usan en onKeyDown. */
-    private val REMOTE_KEYS =
-        setOf(
+            KeyEvent.KEYCODE_BACK,
             KeyEvent.KEYCODE_HEADSETHOOK,
             KeyEvent.KEYCODE_MEDIA_PLAY,
             KeyEvent.KEYCODE_MEDIA_PAUSE,
@@ -320,33 +308,84 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
             KeyEvent.KEYCODE_CHANNEL_DOWN)
 
     /**
-     * Desde MainActivity.dispatchKeyEvent. Devuelve true si la tecla es de las
-     * atrapadas o desactivadas (se consume: ni la pantalla ni el sistema la
-     * reciben).
+     * Botones desactivados a propósito: se consumen y no hacen nada. Micrófono
+     * (búsqueda / asistente de voz), DEL y encendido. OJO: algunas de estas
+     * teclas (POWER, y en muchos equipos el asistente) las atiende Android
+     * antes que cualquier app: esas nunca llegan acá y no se pueden bloquear.
+     */
+    private val DISABLED_KEYS =
+        setOf(
+            KeyEvent.KEYCODE_SEARCH,
+            KeyEvent.KEYCODE_VOICE_ASSIST,
+            KeyEvent.KEYCODE_ASSIST,
+            KeyEvent.KEYCODE_DEL,
+            KeyEvent.KEYCODE_FORWARD_DEL,
+            KeyEvent.KEYCODE_POWER,
+            KeyEvent.KEYCODE_SLEEP,
+            KeyEvent.KEYCODE_SOFT_SLEEP,
+            KeyEvent.KEYCODE_WAKEUP,
+            KeyEvent.KEYCODE_TV_POWER,
+            KeyEvent.KEYCODE_STB_POWER,
+            KeyEvent.KEYCODE_AVR_POWER)
+
+    /** Se apretó el botón del puntero (para emparejar el soltar). */
+    private var pointerDown = false
+
+    /**
+     * Desde MainActivity.dispatchKeyEvent: TODAS las teclas que llegan a la app
+     * se avisan a JS (apretar y soltar, con su nombre) para la línea de señales;
+     * devuelve true (consume) solo las que la app usa o desactiva. El resto
+     * (volumen, Menú…) sigue su comportamiento normal en el sistema.
      */
     fun interceptKey(activity: Activity, event: KeyEvent): Boolean {
-      val keyCode = event.keyCode
-      if (keyCode in DISABLED_KEYS) return true
-      if (keyCode !in CAPTURED_KEYS) return false
       if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) {
-        emitKey(activity, keyCode, event)
+        emitKey(activity, event.keyCode, event.action, event.repeatCount, pointer = false)
+      }
+      return event.keyCode in USED_KEYS || event.keyCode in DISABLED_KEYS
+    }
+
+    /**
+     * Desde MainActivity.dispatchTouchEvent / dispatchGenericMotionEvent: el
+     * puntero del air mouse (el botón del cursor lo activa). Dentro de la app
+     * no hace nada —sus movimientos se ignoran y el puntero no se ve— salvo el
+     * clic, que en modo cursor es el OK del control: se avisa a JS como OK.
+     * Los toques con el dedo no se tocan.
+     */
+    fun interceptPointer(activity: Activity, event: MotionEvent): Boolean {
+      if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
+      when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN ->
+            if ((event.buttonState and MotionEvent.BUTTON_SECONDARY) == 0) {
+              pointerDown = true
+              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN, 0, pointer = true)
+            }
+        MotionEvent.ACTION_UP,
+        MotionEvent.ACTION_CANCEL ->
+            if (pointerDown) {
+              pointerDown = false
+              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP, 0, pointer = true)
+            }
       }
       return true
     }
 
-    /** Desde MainActivity.onKeyDown; true si la tecla fue consumida. */
-    fun handleRemoteKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean =
-        keyCode in REMOTE_KEYS && emitKey(activity, keyCode, event)
-
-    /** Emite "remoteKey" a JS (apretar o soltar); false si React no está listo. */
-    private fun emitKey(activity: Activity, keyCode: Int, event: KeyEvent?): Boolean {
+    /** Emite "remoteKey" a JS; false si React todavía no está listo. */
+    private fun emitKey(
+        activity: Activity,
+        keyCode: Int,
+        action: Int,
+        repeatCount: Int,
+        pointer: Boolean,
+    ): Boolean {
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
           app.reactNativeHost.reactInstanceManager.currentReactContext ?: return false
       val params = Arguments.createMap()
       params.putInt("keyCode", keyCode)
-      params.putInt("repeatCount", event?.repeatCount ?: 0)
-      params.putString("action", if (event?.action == KeyEvent.ACTION_UP) "up" else "down")
+      params.putInt("repeatCount", repeatCount)
+      params.putString("action", if (action == KeyEvent.ACTION_UP) "up" else "down")
+      params.putString("keyName", KeyEvent.keyCodeToString(keyCode))
+      params.putBoolean("pointer", pointer)
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)

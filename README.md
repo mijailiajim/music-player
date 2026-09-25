@@ -24,7 +24,8 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 - **Pantalla adaptativa**: en vertical, el tema actual arriba y la lista debajo; en horizontal, tema y controles a la izquierda y la lista a la derecha. La pantalla no se apaga mientras la app está al frente.
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
 - **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
-- **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para reproducir lo seleccionado, play/pausa, adelantar/atrasar 10 s y volumen (ver mapa de teclas abajo).
+- **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para entrar a la carpeta o reproducir lo seleccionado, play/pausa, adelantar/atrasar y volumen (ver mapa de teclas abajo).
+- **Línea de señales** (abajo de todo, para diagnóstico): muestra lo que le llega a la app de cada botón, con la hora: la tecla con su nombre y código (`DPAD_DOWN(20)`, `BACK(4)`…), el clic del puntero (`CLIC(mouse)`), los estados del reproductor (`buffering → ready → playing`), los comandos de la sesión de medios (`remote-…`) y si la app pierde el foco (`app sin foco`, p. ej. porque se abrió el asistente de voz). Si un botón no muestra nada, su señal no le llega a la app.
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
 - Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
@@ -54,11 +55,12 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 |---|---|
 | ▲ / ▼ (D-pad) | Mover la selección por la lista. Mantenida: 3 canciones por segundo hasta la primera / la última; al soltar queda donde estaba |
 | ◀ / ▶ (D-pad) | Un toque: seleccionar y reproducir la canción anterior / siguiente de la lista (en los extremos no hace nada). Mantenida: pausa y atrasa / adelanta la canción 20 s por segundo; al soltar sigue sonando desde ahí |
-| OK / Enter | Reproducir la canción seleccionada; si es la que ya suena, pausa / play (sobre una carpeta no hace nada) |
+| OK / Enter | Sobre una carpeta: entrar en ella. Sobre una canción: reproducirla; si es la que ya suena, pausa / play |
 | Re Pág (Page ▲) | Subir un nivel de carpeta |
 | Av Pág (Page ▼) | Entrar a la carpeta seleccionada |
 | Home / retorno | Subir un nivel de carpeta (ya no cierra la app) |
-| Micrófono, DEL | Desactivados: no hacen nada |
+| Micrófono, DEL, Power | Desactivados: no hacen nada (salvo los que Android atiende antes que cualquier app: el encendido y, en muchos equipos, el asistente de voz) |
+| Botón del cursor (air mouse) | Sin efecto en la app: el puntero no se ve, sus movimientos se ignoran y su clic funciona como OK |
 | Play/Pausa | Alternar reproducción |
 | ⏮ / ⏭ | Tema anterior / siguiente |
 | ⏪ / ⏩ | Atrasar / adelantar 10 segundos |
@@ -96,7 +98,7 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 - **No detecta el pendrive**: verificá que el celular soporte OTG y que esté activado (en algunos equipos: Ajustes → Sistema → OTG). Formateá el pendrive en **FAT32 o exFAT**; NTFS no está soportado por la mayoría de los Android.
 - **No arranca sola al enchufar**: verificá el permiso *"Mostrar sobre otras apps"* (Ajustes → Apps → Música USB); en algunos equipos (p. ej. Xiaomi) también hace falta *"Mostrar ventanas emergentes mientras se ejecuta en segundo plano"*. Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
-- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
+- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession). Mirá la **línea de señales** de abajo: si al apretar un botón no aparece nada, esa señal no le llega a la app.
 
 ## Estructura del código
 

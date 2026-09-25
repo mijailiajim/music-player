@@ -2,6 +2,8 @@ package com.musicplayer
 
 import android.os.Bundle
 import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.PointerIcon
 import android.view.WindowManager
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
@@ -22,27 +24,23 @@ class MainActivity : ReactActivity() {
     // La app es la pantalla del reproductor mientras se usa con control
     // remoto: la pantalla no debe apagarse sola.
     window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    // Tampoco se ve el puntero del air mouse dentro de la app.
+    window.decorView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
   }
 
   // Antes que nada (antes que el botón enfocado de la pantalla y que el
-  // sistema) se atrapan las teclas que la app maneja al apretar y al soltar
-  // (OK, flechas, Re Pág/Av Pág, Home/retorno) y los botones desactivados
-  // (micrófono, DEL).
-  override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-    if (UsbAudioModule.interceptKey(this, event)) {
-      return true
-    }
-    return super.dispatchKeyEvent(event)
-  }
+  // sistema) pasan por acá todas las teclas: se avisan a JS y se consumen las
+  // que la app usa (OK, flechas, Pág, Home/retorno, multimedia) o desactiva.
+  override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+      UsbAudioModule.interceptKey(this, event) || super.dispatchKeyEvent(event)
 
-  // Resto de teclas del control (multimedia, canal): se usan al apretar. Las
-  // que la app no usa (volumen, Menú…) siguen su comportamiento normal.
-  override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
-    if (UsbAudioModule.handleRemoteKey(this, keyCode, event)) {
-      return true
-    }
-    return super.onKeyDown(keyCode, event)
-  }
+  // El puntero del air mouse (modo cursor) no hace nada en la app; su clic
+  // funciona como el OK del control. Los toques con el dedo no cambian.
+  override fun dispatchTouchEvent(event: MotionEvent): Boolean =
+      UsbAudioModule.interceptPointer(this, event) || super.dispatchTouchEvent(event)
+
+  override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
+      UsbAudioModule.interceptPointer(this, event) || super.dispatchGenericMotionEvent(event)
 
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]

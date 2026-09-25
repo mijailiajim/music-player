@@ -15,10 +15,10 @@ export interface RemoteActions {
    */
   playAdjacent(delta: number): void;
   /**
-   * Reproduce la canción resaltada; si es la que ya está sonando, alterna
-   * pausa/play. Sobre una carpeta no hace nada.
+   * Activa lo resaltado: una carpeta se abre; una canción se reproduce (si es
+   * la que ya suena, alterna pausa/play).
    */
-  playSelection(): void;
+  activateSelection(): void;
   /** Pausa y empieza a adelantar (+1) o atrasar (−1) la canción que suena. */
   startScrub(direction: number): void;
   /** Sigue la reproducción desde el segundo al que se llegó. */
