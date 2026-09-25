@@ -9,6 +9,7 @@ import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
 import com.musicplayer.power.KeepAwake
+import com.musicplayer.power.ScreenOnGuard
 import com.musicplayer.usb.UsbAudioModule
 
 class MainActivity : ReactActivity() {
@@ -19,13 +20,32 @@ class MainActivity : ReactActivity() {
    */
   override fun getMainComponentName(): String = "MusicPlayer"
 
+  /** Si Power apaga la pantalla con la app en uso, la vuelve a encender. */
+  private val screenOnGuard = ScreenOnGuard(this)
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // Keep awake: la app es la pantalla del reproductor mientras se usa con el
-    // control remoto, así que la pantalla no se apaga sola.
+    // control remoto, así que mientras está en uso la pantalla nunca se apaga.
     KeepAwake.keepScreenOn(this)
+    screenOnGuard.start()
     // Tampoco se ve el puntero del air mouse dentro de la app.
     window.decorView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
+  }
+
+  override fun onResume() {
+    super.onResume()
+    screenOnGuard.onResume()
+  }
+
+  override fun onPause() {
+    screenOnGuard.onPause()
+    super.onPause()
+  }
+
+  override fun onDestroy() {
+    screenOnGuard.stop()
+    super.onDestroy()
   }
 
   // Antes que nada (antes que el botón enfocado de la pantalla y que el

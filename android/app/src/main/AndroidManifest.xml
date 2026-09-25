@@ -19,6 +19,9 @@
     <!-- Android 10+: "Mostrar sobre otras apps" es lo que permite que la app
          se abra sola (desde segundo plano) al conectar el pendrive. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <!-- Android 14+: keep awake. Si Power apaga la pantalla con la app en uso,
+         la app la vuelve a encender ("Encender la pantalla"). -->
+    <uses-permission android:name="android.permission.TURN_SCREEN_ON" />
 
     <uses-feature
         android:name="android.hardware.usb.host"

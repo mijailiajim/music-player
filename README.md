@@ -22,7 +22,7 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
   2. Después siguen las **carpetas en orden alfabético**; dentro de cada carpeta, los archivos también en orden alfabético. Las subcarpetas se recorren en profundidad, justo después de su carpeta madre, también alfabéticamente.
   3. Al terminar el último tema, la cola vuelve a empezar.
 - **Pantalla adaptativa**: en vertical, el tema actual arriba y la lista debajo; en horizontal, tema y controles a la izquierda y la lista a la derecha.
-- **Pantalla siempre encendida (keep awake)**: mientras la app está a la vista, la pantalla no se apaga ni se oscurece sola. Y mientras suena música el celular no se duerme aunque se apague la pantalla (p. ej. con el Power del control, que Android no deja bloquear): la música sigue sin cortes. En pausa o detenida deja de mantenerlo despierto, para no gastar batería.
+- **Pantalla siempre encendida (keep awake)**: mientras la app está en uso, la pantalla **nunca se apaga**: no se apaga ni se oscurece sola, y si se aprieta Power (en el control o en el celular) vuelve a encenderse enseguida mostrando la app, incluso encima de la pantalla de bloqueo, sin desbloquear. Para apagar la pantalla, primero hay que salir de la app (Inicio). Además, mientras suena música el celular no se duerme aunque la pantalla esté apagada: la música sigue sin cortes; en pausa o detenida deja de mantenerlo despierto, para no gastar batería.
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
 - **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
 - **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para entrar a la carpeta o reproducir lo seleccionado, play/pausa, adelantar/atrasar y volumen (ver mapa de teclas abajo).
@@ -60,7 +60,8 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 | Re Pág (Page ▲) | Subir un nivel de carpeta |
 | Av Pág (Page ▼) | Entrar a la carpeta seleccionada |
 | Home / retorno | Subir un nivel de carpeta; nunca cierra la app (el atrás del celular hace lo mismo) |
-| Micrófono, DEL, Power | Desactivados: no hacen nada (salvo los que Android atiende antes que cualquier app: el encendido y, en muchos equipos, el asistente de voz) |
+| Micrófono, DEL | Desactivados: no hacen nada (salvo el micrófono en los equipos donde Android abre el asistente de voz antes que cualquier app) |
+| Power | Android no deja bloquearlo: apaga la pantalla, pero con la app en uso vuelve a encenderse enseguida mostrando la app (keep awake) |
 | Botón del cursor (air mouse) | Sin efecto en la app: el puntero no se ve, sus movimientos se ignoran y su clic funciona como OK |
 | Play/Pausa | Alternar reproducción |
 | ⏮ / ⏭ | Tema anterior / siguiente |
@@ -100,6 +101,7 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 - **No arranca sola al enchufar**: verificá el permiso *"Mostrar sobre otras apps"* (Ajustes → Apps → Música USB); en algunos equipos (p. ej. Xiaomi) también hace falta *"Mostrar ventanas emergentes mientras se ejecuta en segundo plano"*. Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
 - **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
+- **Power apaga la pantalla y no vuelve a encenderse sola**: en Android 14 o más nuevo la app usa el permiso *Encender la pantalla*; verificá que esté permitido en Ajustes → Apps → Acceso especial de apps → Encender la pantalla → Música USB (el nombre exacto cambia según la marca). Aun sin ese permiso, al volver a apretar Power se ve la app directamente, sin pasar por el bloqueo.
 - **La música se corta con la pantalla apagada**: la app mantiene despierto el celular mientras suena, pero algunos fabricantes (Xiaomi, Huawei, Samsung…) igual cierran las apps en segundo plano para ahorrar batería. Solución: Ajustes → Apps → Música USB → Batería → *Sin restricciones* (el nombre exacto cambia según la marca).
 
 ## Estructura del código
@@ -107,7 +109,8 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 ```
 android/app/src/main/java/com/musicplayer/
   MainActivity.kt          # teclas del remoto → JS; el atrás no cierra la app
-  power/KeepAwake.kt       # keep awake: pantalla encendida y música sin cortes
+  power/                   # keep awake: la pantalla nunca se apaga con la app en uso
+                           # (ni con Power) y la música no se corta
   usb/UsbAudioModule.kt    # volúmenes USB, listado de archivos, permisos,
                            # volumen del sistema, broadcasts de montaje
 src/
@@ -124,6 +127,7 @@ __tests__/library.test.ts  # tests del orden de reproducción
 ## Limitaciones conocidas
 
 - Solo Android. En iOS no existe autoarranque por USB ni montaje libre de pendrives.
+- La app se muestra **encima de la pantalla de bloqueo** (para que con Power no quede trabada en el bloqueo): cualquiera puede usar el reproductor sin desbloquear el celular; el resto del celular sigue bloqueado.
 - El **Inicio** del celular (deslizar hacia arriba o una tecla HOME) y el de **apps recientes** sí salen de la app: Android no deja que una app los bloquee. Para bloquearlos también, se puede fijar la app en pantalla: Ajustes → Seguridad → *Fijar apps* (el nombre cambia según la marca).
 - El permiso "Acceso a todos los archivos" (`MANAGE_EXTERNAL_STORAGE`) es la vía simple y robusta para leer el pendrive por ruta; es apropiado para una app de uso personal (instalada por APK), pero Google Play lo restringe para apps publicadas.
 - Pendrives NTFS: dependen del soporte del fabricante del celular; lo estándar es FAT32/exFAT.

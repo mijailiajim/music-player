@@ -9,11 +9,12 @@ export interface KeepAwakePort {
 
 /**
  * Keep awake de la reproducción: mientras suena música (o carga la siguiente
- * canción) el equipo no se duerme aunque se apague la pantalla —p. ej. con el
- * Power del control—, así la música no se corta. En pausa, detenida o con
- * error lo suelta, para no gastar batería de más.
+ * canción) el equipo no se duerme aunque la pantalla esté apagada —p. ej.
+ * fuera de la app—, así la música no se corta. En pausa, detenida o con error
+ * lo suelta, para no gastar batería de más.
  *
- * Que la pantalla no se apague mientras se ve la app lo hace MainActivity.
+ * Que la pantalla nunca se apague mientras la app está en uso lo hace el lado
+ * nativo (KeepAwake y ScreenOnGuard).
  */
 export class PlaybackKeepAwake {
   private awake = false;
