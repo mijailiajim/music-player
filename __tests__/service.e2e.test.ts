@@ -2,7 +2,8 @@
  * Tests e2e del servicio de reproducción (la sesión de medios / MediaSession).
  *
  * Documentan los MANEJADORES que registra el servicio (RemotePlay, RemotePause,
- * RemoteStop, RemoteNext, RemotePrevious, RemoteSeek, PlaybackError). El servicio
+ * RemoteStop, RemoteNext, RemotePrevious, RemoteSeek, PlaybackError y el keep
+ * awake que sigue a PlaybackState). El servicio
  * corre en el runtime de react-native-track-player (registrado en index.js). Acá
  * se registra el servicio, se capturan los manejadores y se invocan como lo haría
  * la sesión de medios.
@@ -23,8 +24,16 @@ jest.mock('react-native-track-player', () => {
     seekTo: jest.fn().mockResolvedValue(undefined),
     getProgress: jest.fn().mockResolvedValue({position: 30, duration: 200}),
     getPlaybackState: jest.fn().mockResolvedValue({state: 'paused'}),
+    // Como la librería real, un evento puede tener varios manejadores (p. ej.
+    // PlaybackState: la sesión de medios y el keep awake): se llaman todos.
     addEventListener: jest.fn((event: string, cb: (e?: any) => unknown) => {
-      handlers[event] = cb;
+      const previous = handlers[event];
+      handlers[event] = previous
+        ? async (e?: any) => {
+            await previous(e);
+            return cb(e);
+          }
+        : cb;
     }),
   };
   return {
@@ -62,11 +71,18 @@ jest.mock('react-native-track-player', () => {
   };
 });
 
+jest.mock('../src/native/KeepAwake', () => ({
+  KeepAwake: {setPlaybackAwake: jest.fn()},
+}));
+
 import playbackService from '../src/service';
 
 const tp = jest.requireMock('react-native-track-player');
 const mockTP = tp.default as {[k: string]: jest.Mock};
 const handlers = tp.__handlers as Record<string, (event?: any) => unknown>;
+const mockKeepAwake = jest.requireMock('../src/native/KeepAwake').KeepAwake as {
+  setPlaybackAwake: jest.Mock;
+};
 
 beforeEach(async () => {
   jest.clearAllMocks();
@@ -111,5 +127,31 @@ describe('sesión de medios (MediaSession) — comportamiento actual', () => {
     await handlers['playback-error']();
     expect(mockTP.skipToNext).toHaveBeenCalledTimes(1);
     expect(mockTP.play).toHaveBeenCalled();
+  });
+});
+
+describe('keep awake: mientras suena, el equipo no se duerme', () => {
+  it('lo pide al empezar a sonar y lo suelta en pausa', async () => {
+    await handlers['playback-state']({state: 'loading'});
+    await handlers['playback-state']({state: 'playing'});
+    expect(mockKeepAwake.setPlaybackAwake.mock.calls).toEqual([[true]]);
+
+    await handlers['playback-state']({state: 'paused'});
+    expect(mockKeepAwake.setPlaybackAwake.mock.calls).toEqual([
+      [true],
+      [false],
+    ]);
+  });
+
+  it('convive con la sesión de medios: al volver a sonar se reinicia el tope de saltos por error', async () => {
+    for (let i = 0; i < 25; i++) {
+      await handlers['playback-error']();
+    }
+    expect(mockTP.skipToNext).toHaveBeenCalledTimes(25);
+
+    await handlers['playback-state']({state: 'playing'});
+    await handlers['playback-error']();
+    expect(mockTP.skipToNext).toHaveBeenCalledTimes(26);
+    expect(mockKeepAwake.setPlaybackAwake).toHaveBeenCalledWith(true);
   });
 });

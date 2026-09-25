@@ -332,16 +332,19 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
     private var pointerDown = false
 
     /**
-     * Desde MainActivity.dispatchKeyEvent: TODAS las teclas que llegan a la app
-     * se avisan a JS (apretar y soltar, con su nombre) para la línea de señales;
-     * devuelve true (consume) solo las que la app usa o desactiva. El resto
-     * (volumen, Menú…) sigue su comportamiento normal en el sistema.
+     * Desde MainActivity.dispatchKeyEvent. Devuelve true (consume) las teclas
+     * que la app usa —que además se avisan a JS, al apretar y al soltar— y las
+     * desactivadas, que no hacen nada. El resto (volumen, Menú…) sigue su
+     * comportamiento normal en el sistema.
      */
     fun interceptKey(activity: Activity, event: KeyEvent): Boolean {
+      val keyCode = event.keyCode
+      if (keyCode in DISABLED_KEYS) return true
+      if (keyCode !in USED_KEYS) return false
       if (event.action == KeyEvent.ACTION_DOWN || event.action == KeyEvent.ACTION_UP) {
-        emitKey(activity, event.keyCode, event.action, event.repeatCount, pointer = false)
+        emitKey(activity, keyCode, event.action, event.repeatCount)
       }
-      return event.keyCode in USED_KEYS || event.keyCode in DISABLED_KEYS
+      return true
     }
 
     /**
@@ -357,26 +360,20 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
         MotionEvent.ACTION_DOWN ->
             if ((event.buttonState and MotionEvent.BUTTON_SECONDARY) == 0) {
               pointerDown = true
-              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN, 0, pointer = true)
+              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_DOWN, 0)
             }
         MotionEvent.ACTION_UP,
         MotionEvent.ACTION_CANCEL ->
             if (pointerDown) {
               pointerDown = false
-              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP, 0, pointer = true)
+              emitKey(activity, KeyEvent.KEYCODE_ENTER, KeyEvent.ACTION_UP, 0)
             }
       }
       return true
     }
 
     /** Emite "remoteKey" a JS; false si React todavía no está listo. */
-    private fun emitKey(
-        activity: Activity,
-        keyCode: Int,
-        action: Int,
-        repeatCount: Int,
-        pointer: Boolean,
-    ): Boolean {
+    private fun emitKey(activity: Activity, keyCode: Int, action: Int, repeatCount: Int): Boolean {
       val app = activity.application as? ReactApplication ?: return false
       val reactContext =
           app.reactNativeHost.reactInstanceManager.currentReactContext ?: return false
@@ -384,8 +381,6 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
       params.putInt("keyCode", keyCode)
       params.putInt("repeatCount", repeatCount)
       params.putString("action", if (action == KeyEvent.ACTION_UP) "up" else "down")
-      params.putString("keyName", KeyEvent.keyCodeToString(keyCode))
-      params.putBoolean("pointer", pointer)
       reactContext
           .getJSModule(DeviceEventManagerModule.RCTDeviceEventEmitter::class.java)
           .emit("remoteKey", params)

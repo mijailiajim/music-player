@@ -31,8 +31,4 @@ export interface RemoteKeyEvent {
   repeatCount: number;
   /** Apretar o soltar. */
   action?: 'down' | 'up';
-  /** Nombre que da Android (`KeyEvent.keyCodeToString`), p. ej. "KEYCODE_BACK". */
-  keyName?: string;
-  /** Clic del puntero del air mouse (modo cursor), que la app trata como OK. */
-  pointer?: boolean;
 }

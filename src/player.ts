@@ -4,7 +4,7 @@
  * react-native-track-player. Acá solo se expone como funciones/constantes que
  * ya usaba la app (y los tests).
  */
-import {State, Track} from 'react-native-track-player';
+import {Track} from 'react-native-track-player';
 import {playbackController, playbackScrubber} from './composition';
 import {FolderGroup} from './core/model';
 import {SEEK_STEP_SECONDS} from './core/playback/constants';
@@ -16,6 +16,9 @@ export interface QueueTrack extends Track {
 }
 
 export {SEEK_STEP_SECONDS};
+
+/** true mientras suena o está cargando (la regla vive en el núcleo). */
+export {isPlayingState} from './core/playback/playbackStates';
 
 /** Adelantar / atrasar mientras se mantiene ◀ / ▶ (observable para la UI). */
 export {playbackScrubber};
@@ -61,14 +64,6 @@ export function skipToPrevious(): Promise<void> {
 
 export function seekBy(offsetSeconds: number): Promise<void> {
   return playbackController.seekBy(offsetSeconds);
-}
-
-export function isPlayingState(state: State | undefined): boolean {
-  return (
-    state === State.Playing ||
-    state === State.Buffering ||
-    state === State.Loading
-  );
 }
 
 export function formatTime(totalSeconds: number): string {

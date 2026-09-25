@@ -4,11 +4,11 @@ import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
-import android.view.WindowManager
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
 import com.facebook.react.defaults.DefaultReactActivityDelegate
+import com.musicplayer.power.KeepAwake
 import com.musicplayer.usb.UsbAudioModule
 
 class MainActivity : ReactActivity() {
@@ -21,16 +21,17 @@ class MainActivity : ReactActivity() {
 
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
-    // La app es la pantalla del reproductor mientras se usa con control
-    // remoto: la pantalla no debe apagarse sola.
-    window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+    // Keep awake: la app es la pantalla del reproductor mientras se usa con el
+    // control remoto, así que la pantalla no se apaga sola.
+    KeepAwake.keepScreenOn(this)
     // Tampoco se ve el puntero del air mouse dentro de la app.
     window.decorView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
   }
 
   // Antes que nada (antes que el botón enfocado de la pantalla y que el
-  // sistema) pasan por acá todas las teclas: se avisan a JS y se consumen las
-  // que la app usa (OK, flechas, Pág, Home/retorno, multimedia) o desactiva.
+  // sistema) pasan por acá las teclas: las que la app usa (OK, flechas, Pág,
+  // Home/retorno, multimedia) se avisan a JS y se consumen; las desactivadas
+  // (micrófono, DEL, Power) se consumen sin hacer nada.
   override fun dispatchKeyEvent(event: KeyEvent): Boolean =
       UsbAudioModule.interceptKey(this, event) || super.dispatchKeyEvent(event)
 

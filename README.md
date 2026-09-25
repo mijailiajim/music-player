@@ -21,11 +21,11 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
   1. Si hay archivos de audio **en la raíz** del pendrive, suenan primero, en **orden alfabético** por nombre de archivo (números en orden natural: `2 - tema` antes que `10 - tema`).
   2. Después siguen las **carpetas en orden alfabético**; dentro de cada carpeta, los archivos también en orden alfabético. Las subcarpetas se recorren en profundidad, justo después de su carpeta madre, también alfabéticamente.
   3. Al terminar el último tema, la cola vuelve a empezar.
-- **Pantalla adaptativa**: en vertical, el tema actual arriba y la lista debajo; en horizontal, tema y controles a la izquierda y la lista a la derecha. La pantalla no se apaga mientras la app está al frente.
+- **Pantalla adaptativa**: en vertical, el tema actual arriba y la lista debajo; en horizontal, tema y controles a la izquierda y la lista a la derecha.
+- **Pantalla siempre encendida (keep awake)**: mientras la app está a la vista, la pantalla no se apaga ni se oscurece sola. Y mientras suena música el celular no se duerme aunque se apague la pantalla (p. ej. con el Power del control, que Android no deja bloquear): la música sigue sin cortes. En pausa o detenida deja de mantenerlo despierto, para no gastar batería.
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
 - **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
 - **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para entrar a la carpeta o reproducir lo seleccionado, play/pausa, adelantar/atrasar y volumen (ver mapa de teclas abajo).
-- **Línea de señales** (abajo de todo, para diagnóstico): muestra lo que le llega a la app de cada botón, con la hora: la tecla con su nombre y código (`DPAD_DOWN(20)`, `BACK(4)`…), el clic del puntero (`CLIC(mouse)`), los estados del reproductor (`buffering → ready → playing`), los comandos de la sesión de medios (`remote-…`) y si la app pierde el foco (`app sin foco`, p. ej. porque se abrió el asistente de voz). Si un botón no muestra nada, su señal no le llega a la app.
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
 - Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
@@ -98,13 +98,15 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 - **No detecta el pendrive**: verificá que el celular soporte OTG y que esté activado (en algunos equipos: Ajustes → Sistema → OTG). Formateá el pendrive en **FAT32 o exFAT**; NTFS no está soportado por la mayoría de los Android.
 - **No arranca sola al enchufar**: verificá el permiso *"Mostrar sobre otras apps"* (Ajustes → Apps → Música USB); en algunos equipos (p. ej. Xiaomi) también hace falta *"Mostrar ventanas emergentes mientras se ejecuta en segundo plano"*. Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
-- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession). Mirá la **línea de señales** de abajo: si al apretar un botón no aparece nada, esa señal no le llega a la app.
+- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
+- **La música se corta con la pantalla apagada**: la app mantiene despierto el celular mientras suena, pero algunos fabricantes (Xiaomi, Huawei, Samsung…) igual cierran las apps en segundo plano para ahorrar batería. Solución: Ajustes → Apps → Música USB → Batería → *Sin restricciones* (el nombre exacto cambia según la marca).
 
 ## Estructura del código
 
 ```
 android/app/src/main/java/com/musicplayer/
-  MainActivity.kt          # teclas del remoto → JS; pantalla siempre encendida
+  MainActivity.kt          # teclas del remoto → JS
+  power/KeepAwake.kt       # keep awake: pantalla encendida y música sin cortes
   usb/UsbAudioModule.kt    # volúmenes USB, listado de archivos, permisos,
                            # volumen del sistema, broadcasts de montaje
 src/

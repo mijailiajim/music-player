@@ -21,8 +21,8 @@ export interface ScrubSnapshot {
  * Mantener ◀ / ▶: pausa la canción y mueve la posición a velocidad fija (20 s
  * por segundo) sin tocar el reproductor; al soltar salta una sola vez a la
  * posición alcanzada y sigue sonando desde ahí. No pasa del principio ni del
- * último segundo de la canción. Es observable (como la línea de señales) para
- * que la pantalla muestre la posición mientras se mueve.
+ * último segundo de la canción. Es observable para que la pantalla muestre la
+ * posición mientras se mueve.
  */
 export class PlaybackScrubber {
   private snapshot: ScrubSnapshot | null = null;
