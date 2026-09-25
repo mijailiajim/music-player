@@ -7,6 +7,7 @@
 import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
 import {
   AppState,
+  BackHandler,
   DeviceEventEmitter,
   PermissionsAndroid,
   Platform,
@@ -32,7 +33,7 @@ import {MusicLibrary} from './src/core/library/MusicLibrary';
 import {RemoteActions} from './src/core/remote/RemoteActions';
 import {RemoteControlRouter} from './src/core/remote/RemoteControlRouter';
 import {RemovableVolumeSelector} from './src/core/usb/RemovableVolumeSelector';
-import {RemoteKeyEvent} from './src/keymap';
+import {KeyCodes, RemoteKeyEvent} from './src/keymap';
 import {FolderGroup, scanLibrary, totalTracks, TrackInfo} from './src/library';
 import {UsbAudio} from './src/native/UsbAudio';
 import {
@@ -359,6 +360,14 @@ export default function App() {
         }
       },
     );
+    // "Atrás" que llega por el sistema y no como tecla (p. ej. en Android 16+
+    // el gesto o botón atrás del celular y el Home/retorno del control): hace
+    // lo mismo que BACK —sube un nivel de carpeta— y devuelve true, así la app
+    // nunca se cierra ni se va al fondo.
+    const backSub = BackHandler.addEventListener('hardwareBackPress', () => {
+      remoteRouter.tap(KeyCodes.BACK);
+      return true;
+    });
     const appSub = AppState.addEventListener('change', state => {
       if (state === 'active') {
         recheckPermission();
@@ -371,6 +380,7 @@ export default function App() {
       remoteRouter.cancelAll();
       playbackScrubber.cancel();
       keySub.remove();
+      backSub.remove();
       appSub.remove();
     };
   }, [recheckPermission, refreshVolumes, remoteRouter]);

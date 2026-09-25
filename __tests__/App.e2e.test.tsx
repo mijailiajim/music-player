@@ -18,10 +18,12 @@
  *    segundo y ◀/▶ pausan y atrasan/adelantan la canción 20 s por segundo.
  *  - OK sobre una carpeta entra en ella; sobre la canción que ya suena alterna
  *    pausa/play. Home/retorno (BACK) sube un nivel, como Re Pág.
+ *  - El "atrás" del sistema (BackHandler) hace lo mismo que BACK y nunca cierra
+ *    la app.
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
-import {DeviceEventEmitter, Platform} from 'react-native';
+import {BackHandler, DeviceEventEmitter, Platform} from 'react-native';
 import AutoOpenBanner from '../src/components/AutoOpenBanner';
 import {
   OkButtonCommand,
@@ -168,6 +170,13 @@ const mockUsb = jest.requireMock('../src/native/UsbAudio').UsbAudio as {
   volumeUp: jest.Mock;
   volumeDown: jest.Mock;
 };
+
+// BackHandler REAL de Android (en Jest se carga el de iOS, que no hace nada):
+// ante "atrás" llama a los manejadores y, si ninguno devuelve true, cierra la
+// app (exitApp).
+jest.mock('react-native/Libraries/Utilities/BackHandler', () =>
+  jest.requireActual('react-native/Libraries/Utilities/BackHandler.android'),
+);
 
 jest.mock('react-native-safe-area-context', () => {
   const R = require('react');
@@ -637,6 +646,33 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     await flush();
     expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
     expectNoPlayerCalls();
+  });
+
+  it('ATRÁS del sistema (BackHandler): sube un nivel como BACK y nunca sale de la app', async () => {
+    const exitApp = jest.spyOn(BackHandler, 'exitApp');
+    try {
+      await mountAndLoad();
+      expect(mockCaptured.folderList.title).toBe('Musica');
+      clearPlayerCalls();
+
+      act(() => {
+        DeviceEventEmitter.emit('hardwareBackPress');
+      });
+      await flush();
+      expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+      expect(mockCaptured.folderList.selectedIndex).toBe(1); // "Musica"
+
+      // En la raíz ya no hay adónde subir: se queda ahí, sin salir de la app.
+      act(() => {
+        DeviceEventEmitter.emit('hardwareBackPress');
+      });
+      await flush();
+      expect(mockCaptured.folderList.title).toBe(ROOT_FOLDER_NAME);
+      expect(exitApp).not.toHaveBeenCalled();
+      expectNoPlayerCalls();
+    } finally {
+      exitApp.mockRestore();
+    }
   });
 
   it('si falta el permiso para abrirse sola, avisa y PERMITIR abre el ajuste', async () => {

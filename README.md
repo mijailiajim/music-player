@@ -26,6 +26,7 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 - **Letras muy grandes**: el nombre del archivo en reproducción ocupa el protagonismo (se auto-ajusta si el nombre es largo), con la lista de la carpeta actual en tipografía grande y alto contraste.
 - **Navegador de carpetas**: la lista muestra la carpeta abierta: primero **todas** sus subcarpetas (tengan o no música, con cuántas canciones tiene cada una) y después **solo las canciones reproducibles** (fotos, videos y demás no aparecen). Con el control se entra a una carpeta (Av Pág) y se sube de nivel (Re Pág); en pantalla, tocando la carpeta o «⬆ Subir».
 - **Control remoto Bluetooth**: navegación con las flechas y Re Pág/Av Pág, OK para entrar a la carpeta o reproducir lo seleccionado, play/pausa, adelantar/atrasar y volumen (ver mapa de teclas abajo).
+- **No se sale con «atrás»**: ni el Home/retorno del control ni el gesto o botón atrás del celular cierran la app o la mandan al fondo: suben un nivel de carpeta (en la raíz no hacen nada). Usa [`BackHandler`](https://reactnative.dev/docs/backhandler) de React Native y, por si llega antes de que cargue la app, también lo frena el lado nativo.
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
 - Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
@@ -58,7 +59,7 @@ Emparejamiento: Ajustes → Bluetooth del celular → vincular como dispositivo 
 | OK / Enter | Sobre una carpeta: entrar en ella. Sobre una canción: reproducirla; si es la que ya suena, pausa / play |
 | Re Pág (Page ▲) | Subir un nivel de carpeta |
 | Av Pág (Page ▼) | Entrar a la carpeta seleccionada |
-| Home / retorno | Subir un nivel de carpeta (ya no cierra la app) |
+| Home / retorno | Subir un nivel de carpeta; nunca cierra la app (el atrás del celular hace lo mismo) |
 | Micrófono, DEL, Power | Desactivados: no hacen nada (salvo los que Android atiende antes que cualquier app: el encendido y, en muchos equipos, el asistente de voz) |
 | Botón del cursor (air mouse) | Sin efecto en la app: el puntero no se ve, sus movimientos se ignoran y su clic funciona como OK |
 | Play/Pausa | Alternar reproducción |
@@ -105,7 +106,7 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 
 ```
 android/app/src/main/java/com/musicplayer/
-  MainActivity.kt          # teclas del remoto → JS
+  MainActivity.kt          # teclas del remoto → JS; el atrás no cierra la app
   power/KeepAwake.kt       # keep awake: pantalla encendida y música sin cortes
   usb/UsbAudioModule.kt    # volúmenes USB, listado de archivos, permisos,
                            # volumen del sistema, broadcasts de montaje
@@ -123,6 +124,7 @@ __tests__/library.test.ts  # tests del orden de reproducción
 ## Limitaciones conocidas
 
 - Solo Android. En iOS no existe autoarranque por USB ni montaje libre de pendrives.
+- El **Inicio** del celular (deslizar hacia arriba o una tecla HOME) y el de **apps recientes** sí salen de la app: Android no deja que una app los bloquee. Para bloquearlos también, se puede fijar la app en pantalla: Ajustes → Seguridad → *Fijar apps* (el nombre cambia según la marca).
 - El permiso "Acceso a todos los archivos" (`MANAGE_EXTERNAL_STORAGE`) es la vía simple y robusta para leer el pendrive por ruta; es apropiado para una app de uso personal (instalada por APK), pero Google Play lo restringe para apps publicadas.
 - Pendrives NTFS: dependen del soporte del fabricante del celular; lo estándar es FAT32/exFAT.
 - La app usa la arquitectura clásica de React Native (`newArchEnabled=false`) por compatibilidad con `react-native-track-player` 4.x.

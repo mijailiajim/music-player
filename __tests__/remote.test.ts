@@ -111,6 +111,14 @@ describe('Re Pág, Av Pág y Home/retorno: navegan las carpetas', () => {
     expect(spy).toHaveBeenCalledTimes(1);
     expectOnly(actions, 'goUp');
   });
+
+  it('el "atrás" del sistema es un toque de BACK (router.tap): sube un nivel', () => {
+    const spy = jest.spyOn(BackButtonCommand.prototype, 'execute');
+    const actions = mockActions();
+    new RemoteControlRouter(actions).tap(KeyCodes.BACK);
+    expect(spy).toHaveBeenCalledTimes(1);
+    expectOnly(actions, 'goUp');
+  });
 });
 
 describe('▲ / ▼', () => {

@@ -49,6 +49,15 @@ export class RemoteControlRouter {
     this.bindings.get(keyCode)?.release?.(this.actions);
   }
 
+  /**
+   * Un toque (apretar y soltar), para lo que llega como un solo evento: p. ej.
+   * el "atrás" del sistema (BackHandler), que es un toque de BACK.
+   */
+  tap(keyCode: number): void {
+    this.press(keyCode);
+    this.release(keyCode);
+  }
+
   /** Corta todo lo que esté en curso (botones mantenidos). */
   cancelAll(): void {
     new Set(this.bindings.values()).forEach(command => command.cancel?.());

@@ -43,6 +43,11 @@ class MainActivity : ReactActivity() {
   override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean =
       UsbAudioModule.interceptPointer(this, event) || super.dispatchGenericMotionEvent(event)
 
+  // Red de seguridad del "atrás": si llega a React Native y nadie lo atiende
+  // (p. ej. mientras JS todavía carga), Android cerraría la app; acá no hace
+  // nada. Normalmente lo atiende la app: dispatchKeyEvent o BackHandler.
+  override fun invokeDefaultOnBackPressed() {}
+
   /**
    * Returns the instance of the [ReactActivityDelegate]. We use [DefaultReactActivityDelegate]
    * which allows you to enable New Architecture with a single boolean flags [fabricEnabled]
