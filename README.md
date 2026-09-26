@@ -29,7 +29,7 @@ Checksums en [`SHA256SUMS.txt`](https://github.com/mijailiajim/music-player/raw/
 - **No se sale con «atrás»**: ni el Home/retorno del control ni el gesto o botón atrás del celular cierran la app o la mandan al fondo: suben un nivel de carpeta (en la raíz no hacen nada). Usa [`BackHandler`](https://reactnative.dev/docs/backhandler) de React Native y, por si llega antes de que cargue la app, también lo frena el lado nativo.
 - También responde a los controles de la **notificación / pantalla de bloqueo** y a botones multimedia de auriculares y estéreos Bluetooth.
 - Si un archivo está dañado o no se puede leer, salta solo al siguiente.
-- Al sacar el pendrive, la música se detiene y la app queda esperando el próximo.
+- **Al sacar el pendrive, la música se detiene y la app se cierra.** Al volver a conectarlo se abre sola (si se abre la app sin pendrive, queda esperándolo).
 
 Formatos soportados (los que decodifica Android/ExoPlayer): `mp3, m4a, m4b, aac, wav, ogg, oga, opus, flac, amr, mka`. Se ignoran carpetas ocultas y de sistema (`Android`, `LOST.DIR`, `System Volume Information`, etc.).
 
@@ -100,8 +100,8 @@ Chequeos rápidos: `npm test` (lógica de escaneo/orden) y `npm run typecheck`.
 - **No detecta el pendrive**: verificá que el celular soporte OTG y que esté activado (en algunos equipos: Ajustes → Sistema → OTG). Formateá el pendrive en **FAT32 o exFAT**; NTFS no está soportado por la mayoría de los Android.
 - **No arranca sola al enchufar**: verificá el permiso *"Mostrar sobre otras apps"* (Ajustes → Apps → Música USB); en algunos equipos (p. ej. Xiaomi) también hace falta *"Mostrar ventanas emergentes mientras se ejecuta en segundo plano"*. Si la app ya está abierta, no hace falta nada: detecta el montaje sola (escaneo + sondeo cada 4 s).
 - **Empieza unos segundos después de enchufar**: es normal; Android tarda en montar el volumen.
-- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession).
-- **Power apaga la pantalla y no vuelve a encenderse sola**: en Android 14 o más nuevo la app usa el permiso *Encender la pantalla*; verificá que esté permitido en Ajustes → Apps → Acceso especial de apps → Encender la pantalla → Música USB (el nombre exacto cambia según la marca). Aun sin ese permiso, al volver a apretar Power se ve la app directamente, sin pasar por el bloqueo.
+- **El control remoto no hace nada**: confirmá que esté emparejado por Bluetooth (no con dongle), y que la app esté en primer plano para la navegación con flechas. Play/pausa/saltar funcionan incluso con la pantalla bloqueada (MediaSession). Al volver a la app tocando la pantalla (p. ej. desde recientes) el control sigue funcionando: la app mantiene el foco para que Android no se quede con la primera tecla.
+- **Power apaga la pantalla y no vuelve a encenderse sola**: la app la vuelve a encender por dos vías y necesita al menos uno de estos permisos: *Mostrar sobre otras apps* (el mismo de la apertura automática: Ajustes → Apps → Música USB) o, en Android 14 o más nuevo, *Encender la pantalla* (Ajustes → Apps → Acceso especial de apps → Encender la pantalla → Música USB). Los nombres exactos cambian según la marca. Aun sin permisos, al volver a apretar Power se ve la app directamente, sin pasar por el bloqueo.
 - **La música se corta con la pantalla apagada**: la app mantiene despierto el celular mientras suena, pero algunos fabricantes (Xiaomi, Huawei, Samsung…) igual cierran las apps en segundo plano para ahorrar batería. Solución: Ajustes → Apps → Música USB → Batería → *Sin restricciones* (el nombre exacto cambia según la marca).
 
 ## Estructura del código

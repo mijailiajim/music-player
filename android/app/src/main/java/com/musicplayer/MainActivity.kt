@@ -1,9 +1,12 @@
 package com.musicplayer
 
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.PointerIcon
+import android.view.View
+import android.view.ViewGroup
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
 import com.facebook.react.defaults.DefaultNewArchitectureEntryPoint.fabricEnabled
@@ -23,6 +26,9 @@ class MainActivity : ReactActivity() {
   /** Si Power apaga la pantalla con la app en uso, la vuelve a encender. */
   private val screenOnGuard = ScreenOnGuard(this)
 
+  /** Vista invisible que tiene siempre el foco (ver onWindowFocusChanged). */
+  private lateinit var keyFocus: View
+
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
     // Keep awake: la app es la pantalla del reproductor mientras se usa con el
@@ -31,11 +37,37 @@ class MainActivity : ReactActivity() {
     screenOnGuard.start()
     // Tampoco se ve el puntero del air mouse dentro de la app.
     window.decorView.pointerIcon = PointerIcon.getSystemIcon(this, PointerIcon.TYPE_NULL)
+
+    keyFocus =
+        View(this).apply {
+          isFocusable = true
+          isFocusableInTouchMode = true
+          importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            defaultFocusHighlightEnabled = false
+          }
+        }
+    addContentView(keyFocus, ViewGroup.LayoutParams(1, 1))
+    keyFocus.requestFocus()
+  }
+
+  // Después de tocar la pantalla (p. ej. volver a la app desde recientes)
+  // Android queda en "modo táctil" y usa la primera tecla del control solo para
+  // salir de ese modo, sin pasarla a la app. Con el foco siempre en keyFocus
+  // (que puede tenerlo también en modo táctil) las teclas llegan siempre.
+  override fun onWindowFocusChanged(hasFocus: Boolean) {
+    super.onWindowFocusChanged(hasFocus)
+    if (hasFocus && ::keyFocus.isInitialized) keyFocus.requestFocus()
   }
 
   override fun onResume() {
     super.onResume()
     screenOnGuard.onResume()
+  }
+
+  override fun onUserLeaveHint() {
+    screenOnGuard.onUserLeaveHint()
+    super.onUserLeaveHint()
   }
 
   override fun onPause() {

@@ -246,7 +246,13 @@ export default function App() {
           activeTrackRef.current = undefined;
           setActiveTrack(undefined);
           setStatus('esperando-usb');
-          await clearQueue();
+          // Se sacó el pendrive: se corta la música y la app se cierra (se abre
+          // sola al volver a conectarlo).
+          try {
+            await clearQueue();
+          } finally {
+            UsbAudio.closeApp();
+          }
         }
         return;
       }

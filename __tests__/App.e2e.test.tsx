@@ -20,6 +20,7 @@
  *    pausa/play. Home/retorno (BACK) sube un nivel, como Re Pág.
  *  - El "atrás" del sistema (BackHandler) hace lo mismo que BACK y nunca cierra
  *    la app.
+ *  - Al sacar el pendrive se corta la música y la app se cierra.
  */
 import React from 'react';
 import TestRenderer, {act} from 'react-test-renderer';
@@ -143,20 +144,25 @@ jest.mock('../src/native/UsbAudio', () => ({
   UsbAudio: {
     isAvailable: true,
     getVolumes: () =>
-      Promise.resolve([
-        {
-          path: '/usb',
-          description: 'USB',
-          removable: true,
-          primary: false,
-          state: 'mounted',
-        },
-      ]),
+      Promise.resolve(
+        mockUsbConnected
+          ? [
+              {
+                path: '/usb',
+                description: 'USB',
+                removable: true,
+                primary: false,
+                state: 'mounted',
+              },
+            ]
+          : [],
+      ),
     listDir: (p: string) => Promise.resolve(mockFs[p] ?? []),
     hasStorageAccess: () => Promise.resolve(true),
     requestStorageAccess: () => Promise.resolve(true),
     canAutoOpen: () => Promise.resolve(mockCanAutoOpen),
     requestAutoOpen: jest.fn(),
+    closeApp: jest.fn(),
     volumeUp: jest.fn(),
     volumeDown: jest.fn(),
   },
@@ -164,9 +170,12 @@ jest.mock('../src/native/UsbAudio', () => ({
 }));
 /** ¿Ya tiene el permiso para abrirse sola al conectar el pendrive? */
 let mockCanAutoOpen = true;
+/** ¿El pendrive está conectado? */
+let mockUsbConnected = true;
 
 const mockUsb = jest.requireMock('../src/native/UsbAudio').UsbAudio as {
   requestAutoOpen: jest.Mock;
+  closeApp: jest.Mock;
   volumeUp: jest.Mock;
   volumeDown: jest.Mock;
 };
@@ -702,6 +711,44 @@ describe('Pendrive real del usuario (3 carpetas, solo "Musica" con 36 temas)', (
     act(() => mockCaptured.controls.onVolumeDown());
     expect(mockUsb.volumeUp).toHaveBeenCalledTimes(1);
     expect(mockUsb.volumeDown).toHaveBeenCalledTimes(1);
+  });
+
+  it('al sacar el pendrive se corta la música y la app se cierra', async () => {
+    await mountAndLoad();
+    useFakeClock();
+    mockPlayer.reset.mockClear();
+    mockUsbConnected = false;
+    try {
+      act(() => {
+        DeviceEventEmitter.emit('usbStorageChanged', {
+          action: 'android.intent.action.MEDIA_REMOVED',
+        });
+      });
+      advance(1000); // la app espera un momento tras el aviso de expulsión
+      for (let i = 0; i < 10 && mockUsb.closeApp.mock.calls.length === 0; i++) {
+        await flush();
+      }
+      expect(mockPlayer.reset).toHaveBeenCalled(); // música cortada
+      expect(mockUsb.closeApp).toHaveBeenCalledTimes(1);
+    } finally {
+      mockUsbConnected = true;
+    }
+  });
+
+  it('abierta sin pendrive no se cierra: espera a que lo conecten', async () => {
+    mockUsbConnected = false;
+    try {
+      await act(async () => {
+        root = TestRenderer.create(React.createElement(App));
+      });
+      for (let i = 0; i < 5; i++) {
+        await flush();
+      }
+      expect(mockPlayer.add).not.toHaveBeenCalled();
+      expect(mockUsb.closeApp).not.toHaveBeenCalled();
+    } finally {
+      mockUsbConnected = true;
+    }
   });
 });
 

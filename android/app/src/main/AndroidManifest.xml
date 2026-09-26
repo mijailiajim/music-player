@@ -50,6 +50,15 @@
         </intent-filter>
       </activity>
 
+      <!-- Keep awake: se abre un instante, invisible, para volver a encender la
+           pantalla si Power la apagó con la app en uso. -->
+      <activity
+        android:name=".power.ScreenOnActivity"
+        android:theme="@android:style/Theme.Translucent.NoTitleBar"
+        android:excludeFromRecents="true"
+        android:noHistory="true"
+        android:exported="false" />
+
       <!-- Autoarranque SIN preguntar: al conectar un pendrive este receptor
            abre la app. (La actividad ya no declara USB_DEVICE_ATTACHED: eso es
            lo que hacía que Android preguntara "¿Abrir con…?"). -->

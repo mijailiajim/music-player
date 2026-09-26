@@ -39,6 +39,7 @@ import java.io.File
  *  - adjustVolume: volumen multimedia del sistema.
  *  - canAutoOpen / requestAutoOpen: permiso para abrirse sola al conectar el
  *    pendrive ("Mostrar sobre otras apps" en Android 10+).
+ *  - closeApp: cerrar la app (al sacar el pendrive).
  *  - Evento "usbStorageChanged": montaje/expulsión de medios y conexión USB.
  *  - Evento "remoteKey": teclas del control (y el clic del puntero, como OK)
  *    reenviadas por MainActivity.
@@ -246,6 +247,18 @@ class UsbAudioModule(private val ctx: ReactApplicationContext) :
         ctx.startActivity(details)
       } catch (_: Exception) {}
     }
+  }
+
+  /**
+   * Cierra la app (al sacar el pendrive): termina la actividad y la saca de
+   * recientes. Al quitarse la tarea, react-native-track-player detiene la
+   * música, quita la notificación y termina el proceso
+   * (StopPlaybackAndRemoveNotification). Al conectar el pendrive se abre sola.
+   */
+  @ReactMethod
+  fun closeApp() {
+    val activity = ctx.currentActivity ?: return
+    activity.runOnUiThread { activity.finishAndRemoveTask() }
   }
 
   @ReactMethod

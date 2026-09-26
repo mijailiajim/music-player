@@ -3,6 +3,7 @@ package com.musicplayer.power
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import android.os.PowerManager
 import android.view.WindowManager
@@ -41,18 +42,28 @@ object KeepAwake {
   fun isScreenOn(context: Context): Boolean = powerManager(context).isInteractive
 
   /**
-   * Vuelve a encender la pantalla. En Android 14+ usa el permiso "Encender la
-   * pantalla" (TURN_SCREEN_ON, en el manifiesto; el usuario lo puede quitar).
+   * Vuelve a encender la pantalla, por dos vías porque cada Android/marca
+   * restringe alguna:
+   *  - un wake lock que la enciende (en Android 14+ usa el permiso "Encender la
+   *    pantalla", TURN_SCREEN_ON);
+   *  - ScreenOnActivity, que la enciende al mostrarse (con la pantalla apagada
+   *    Android la deja abrirse gracias a "Mostrar sobre otras apps", el mismo
+   *    permiso de la apertura automática).
    */
   @Suppress("DEPRECATION")
-  fun wakeScreen(context: Context) {
-    powerManager(context)
+  fun wakeScreen(activity: Activity) {
+    powerManager(activity)
         .newWakeLock(
             PowerManager.SCREEN_BRIGHT_WAKE_LOCK or
                 PowerManager.ACQUIRE_CAUSES_WAKEUP or
                 PowerManager.ON_AFTER_RELEASE,
             SCREEN_TAG)
         .acquire(WAKE_SCREEN_MS)
+    try {
+      activity.startActivity(
+          Intent(activity, ScreenOnActivity::class.java)
+              .addFlags(Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_NO_USER_ACTION))
+    } catch (_: RuntimeException) {}
   }
 
   // Sin tiempo límite a propósito (como el wake mode de ExoPlayer): se suelta
